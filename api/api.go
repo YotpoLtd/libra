@@ -132,19 +132,19 @@ func DefaultConfig() *Config {
 	}
 
 	// Read TLS specific env vars
-	if v := os.Getenv("NOMAD_CACERT"); v != "" {
+	if v := os.Getenv("LIBRA_CACERT"); v != "" {
 		config.TLSConfig.CACert = v
 	}
-	if v := os.Getenv("NOMAD_CAPATH"); v != "" {
+	if v := os.Getenv("LIBRA_CAPATH"); v != "" {
 		config.TLSConfig.CAPath = v
 	}
-	if v := os.Getenv("NOMAD_CLIENT_CERT"); v != "" {
+	if v := os.Getenv("LIBRA_CLIENT_CERT"); v != "" {
 		config.TLSConfig.ClientCert = v
 	}
-	if v := os.Getenv("NOMAD_CLIENT_KEY"); v != "" {
+	if v := os.Getenv("LIBRA_CLIENT_KEY"); v != "" {
 		config.TLSConfig.ClientKey = v
 	}
-	if v := os.Getenv("NOMAD_SKIP_VERIFY"); v != "" {
+	if v := os.Getenv("LIBRA_SKIP_VERIFY"); v != "" {
 		if insecure, err := strconv.ParseBool(v); err == nil {
 			config.TLSConfig.Insecure = insecure
 		}
@@ -245,12 +245,6 @@ func (c *Client) NewRequest(path, method string, body interface{}) (*http.Respon
 	}
 
 }
-
-// decodeBody is used to JSON decode a body
-// func decodeBody(resp *http.Response, out interface{}) error {
-// 	dec := json.NewDecoder(resp.Body)
-// 	return dec.Decode(out)
-// }
 
 // encodeBody is used to encode a request body
 func encodeBody(obj interface{}) (io.Reader, error) {

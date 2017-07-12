@@ -8,15 +8,21 @@ The skeleton of this project is from [jippi/nomad-auto-scale](https://github.com
 
 ## How do I add a command?
 1. Add an API endpoint in `/api/`.
-2. Add a new command in `/command/`.
-3. Register the command with the CLI in `/commands.go`
+2. Register the endpoint with the server in `/command/server.go`
+3. Document the endpoint in `/api/README.md`
+4. Add a new command in `/command/` that calls the API endpoint.
+5. Register the command with the CLI in `/commands.go`
 
 ## Todo:
 * Randomly stagger cron jobs to avoid conflict
 * Improve configuration management (perhaps add a submission API)
+* Handle Nomad errors more robustly
 
 ## Configuration
-Here's an example `config.hcl` file:
+You can (and probably should) configure five environment variables as well, `LIBRA_ADDR`, `LIBRA_CONFIG`, `GRAPHITE_PASSWORD`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`.
+
+Libra gets most of its configuration from HCL config files located in a config directory (default `/etc/libra`). Here's an example `config.hcl` file:
+
 ```hcl
 // Nomad Client configuration
 nomad {
@@ -35,6 +41,7 @@ backend "other-backend" {
 }
 
 // Scale for the job "nginx-prod"
+// job and group must correspond to a valid Nomad job and group that is running in the Nomad cluster
 job "nginx-prod" {
   // For group "nginx"
   group "nginx" {
@@ -104,4 +111,3 @@ job "nginx-prod" {
 }
 ```
 
-You can configure three environment variables as well, `GRAPHITE_PASSWORD`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`.
