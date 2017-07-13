@@ -1,5 +1,5 @@
 ## GET
-### `GET /ping`
+### `GET /`
 ```javascript
 "welcome to libra, the Nomad auto-scaler"
 ```

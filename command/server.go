@@ -3,11 +3,14 @@ package command
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"strings"
 
 	"flag"
+
+	"time"
 
 	"github.com/ant0ine/go-json-rest/rest"
 	"github.com/mitchellh/cli"
@@ -158,6 +161,8 @@ func loadRules() (*cron.Cron, []cron.EntryID, error) {
 
 func createCronFunc(rule *structs.Rule, nomadConf *nomad.Config, job, group string, min, max int) func() {
 	return func() {
+		n := rand.Intn(10) // offset cron jobs slightly so they don't collide
+		time.Sleep(time.Duration(n) * time.Second)
 		backend.Work(rule, nomadConf, job, group, min, max)
 	}
 }
