@@ -40,6 +40,15 @@ func Scale(client *api.Client, jobID, groupID string, scale, min, max int) (stri
 	return resp.EvalID, newCount, nil
 }
 
+// Restart restarts a job to get the latest docker image
+func Restart(client *api.Client, jobID string) (string, error) {
+	evalID, _, err := client.Jobs().ForceEvaluate(jobID, &api.WriteOptions{})
+	if err != nil {
+		return "", err
+	}
+	return evalID, nil
+}
+
 // SetCapacity sets the count of a task group
 func SetCapacity(client *api.Client, jobID, groupID string, count, min, max int) (string, int, error) {
 	job, _, _ := client.Jobs().Info(jobID, &api.QueryOptions{})

@@ -10,6 +10,7 @@ toc_footers:
 includes:
   - scaling
   - backends
+  - restarting
   - health
 
 search: true

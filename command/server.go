@@ -74,6 +74,7 @@ func (c *ServerCommand) Run(args []string) int {
 		rest.Get("/backends", api.BackendsHandler),
 		rest.Get("/ping", api.PingHandler),
 		rest.Get("/", api.HomeHandler),
+		rest.Get("/restart", api.RestartHandler),
 	)
 	if err != nil {
 		logrus.Fatal(err)

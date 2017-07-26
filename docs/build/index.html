@@ -241,6 +241,14 @@
               </ul>
           </li>
           <li>
+            <a href="#restarting" class="toc-h1 toc-link" data-title="Restarting">Restarting</a>
+              <ul class="toc-list-h2">
+                  <li>
+                    <a href="#restart-a-nomad-job" class="toc-h2 toc-link" data-title="Restarting">Restart a Nomad job</a>
+                  </li>
+              </ul>
+          </li>
+          <li>
             <a href="#health" class="toc-h1 toc-link" data-title="Health">Health</a>
               <ul class="toc-list-h2">
                   <li>
@@ -365,6 +373,37 @@
 <p>This endpoint retrieves all configured backends.</p>
 <h3 id='http-request'>HTTP Request</h3>
 <p><code>GET http://libra.consul/backends</code></p>
+<h1 id='restarting'>Restarting</h1><h2 id='restart-a-nomad-job'>Restart a Nomad job</h2><pre class="highlight shell tab-shell"><code>curl -X POST <span class="se">\</span>
+  http://libra.consul/restart <span class="se">\</span>
+  -H <span class="s1">'content-type: application/json'</span> <span class="se">\</span>
+  -d <span class="s1">'{
+    "job": "nginx"
+}'</span>
+</code></pre>
+<blockquote>
+<p>The above command returns JSON structured like this:</p>
+</blockquote>
+<pre class="highlight json tab-json"><code><span class="p">{</span><span class="w">
+  </span><span class="s2">"eval"</span><span class="p">:</span><span class="w"> </span><span class="s2">"76e58486-0fd3-c2d9-f442-2996025ea814"</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre>
+<p>This endpoint will restart a Nomad job.</p>
+<h3 id='http-request'>HTTP Request</h3>
+<p><code>POST http://libra.consul/restart</code></p>
+<h3 id='json-parameters'>JSON Parameters</h3>
+<table><thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead><tbody>
+<tr>
+<td>job</td>
+<td>string</td>
+<td>The name of the Nomad job to restart</td>
+</tr>
+</tbody></table>
 <h1 id='health'>Health</h1><h2 id='check-libra-health'>Check Libra health</h2><pre class="highlight shell tab-shell"><code>curl <span class="s2">"http://libra.consul/ping"</span>
 </code></pre>
 <blockquote>
