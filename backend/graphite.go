@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"errors"
 	"fmt"
 
 	log "github.com/sirupsen/logrus"
@@ -47,6 +48,9 @@ func (b *GraphiteBackend) GetValue(rule structs.Rule) (float64, error) {
 	if err != nil {
 		log.Println(err)
 		return 0.0, err
+	}
+	if len(s.Datapoints) == 0 {
+		return 0.0, errors.New("no datapoints found for metric")
 	}
 	return s.Datapoints[len(s.Datapoints)-1][0], nil
 }

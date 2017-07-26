@@ -28,6 +28,7 @@ func RestartHandler(w rest.ResponseWriter, r *rest.Request) {
 	var t RestartRequest
 	err := r.DecodeJsonPayload(&t)
 	if err != nil {
+		log.Infoln("GOT AN ERROR")
 		log.Errorln(err)
 		rest.Error(w, err.Error(), http.StatusBadRequest)
 		return

@@ -23,7 +23,7 @@ func Work(r *structs.Rule, nomadConf *nomad.Config, job, group string, min, max 
 
 	value, err := r.BackendInstance.GetValue(*r)
 	if err != nil {
-		log.Errorf("%s", err)
+		log.Errorf("problem getting value for metric %s: %s", r.Name, err)
 		return err
 	}
 

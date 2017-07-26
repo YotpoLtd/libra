@@ -30,7 +30,7 @@ Usage: libra scale <job> <group> <count> [options]
 
 func (c *ScaleCommand) Run(args []string) int {
 	scaleFlags := flag.NewFlagSet("addr", flag.ContinueOnError)
-	scaleFlags.StringVar(&c.Address, "addr", "http://127.0.0.1:4646", "Address of a Libra server")
+	scaleFlags.StringVar(&c.Address, "addr", "http://127.0.0.1:8646", "Address of a Libra server")
 	if err := scaleFlags.Parse(args); err != nil {
 		return 1
 	}

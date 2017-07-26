@@ -74,7 +74,7 @@ func (c *ServerCommand) Run(args []string) int {
 		rest.Get("/backends", api.BackendsHandler),
 		rest.Get("/ping", api.PingHandler),
 		rest.Get("/", api.HomeHandler),
-		rest.Get("/restart", api.RestartHandler),
+		rest.Post("/restart", api.RestartHandler),
 	)
 	if err != nil {
 		logrus.Fatal(err)
@@ -89,7 +89,7 @@ func (c *ServerCommand) Run(args []string) int {
 		return 1
 	}
 
-	err = http.ListenAndServe(":8080", s.MakeHandler())
+	err = http.ListenAndServe(":8646", s.MakeHandler())
 	if err != nil {
 		logrus.Errorf("Problem with the Libra server: %s", err)
 		return 1

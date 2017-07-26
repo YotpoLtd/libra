@@ -31,7 +31,7 @@ Usage: libra set-capacity <job> <group> <count> [options]
 
 func (c *SetCapacityCommand) Run(args []string) int {
 	setCapacityFlags := flag.NewFlagSet("addr", flag.ContinueOnError)
-	setCapacityFlags.StringVar(&c.Address, "addr", "http://127.0.0.1:4646", "Address of a Libra server")
+	setCapacityFlags.StringVar(&c.Address, "addr", "http://127.0.0.1:8646", "Address of a Libra server")
 	if err := setCapacityFlags.Parse(args); err != nil {
 		return 1
 	}

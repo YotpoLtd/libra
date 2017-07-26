@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"errors"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatch"
@@ -81,6 +83,9 @@ func (b *CloudWatchBackend) GetValue(rule structs.Rule) (float64, error) {
 	if err != nil {
 		log.Println(err)
 		return 0.0, err
+	}
+	if len(s.Datapoints) == 0 {
+		return 0.0, errors.New("no datapoints found for metric")
 	}
 	return *s.Datapoints[len(s.Datapoints)-1].Average, nil
 }

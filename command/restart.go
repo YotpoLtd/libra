@@ -29,7 +29,7 @@ Usage: libra restart <job> [options]
 
 func (c *RestartCommand) Run(args []string) int {
 	pingFlags := flag.NewFlagSet("addr", flag.ContinueOnError)
-	pingFlags.StringVar(&c.Address, "addr", "http://127.0.0.1:4646", "Address of a Libra server")
+	pingFlags.StringVar(&c.Address, "addr", "http://127.0.0.1:8646", "Address of a Libra server")
 	if err := pingFlags.Parse(args); err != nil {
 		return 1
 	}
