@@ -1,0 +1,1 @@
+This directory contains all you need to build the Libra API documentation site. It is build using [Slate](https://github.com/lord/slate). The build script should take care of everything and output a static build of the docs site. The deploy script will push the docs to Github Pages.
