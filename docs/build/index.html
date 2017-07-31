@@ -377,8 +377,11 @@
   http://libra.consul/restart <span class="se">\</span>
   -H <span class="s1">'content-type: application/json'</span> <span class="se">\</span>
   -d <span class="s1">'{
-    "job": "nginx"
-}'</span>
+          "job": "nginx",
+        "group": "nginx",
+        "task": "nginx",
+        "image": "nginx:latest"
+      }'</span>
 </code></pre>
 <blockquote>
 <p>The above command returns JSON structured like this:</p>
@@ -402,6 +405,21 @@
 <td>job</td>
 <td>string</td>
 <td>The name of the Nomad job to restart</td>
+</tr>
+<tr>
+<td>group</td>
+<td>string</td>
+<td>The name of the Nomad group to restart</td>
+</tr>
+<tr>
+<td>task</td>
+<td>string</td>
+<td>The name of the Nomad task to restart</td>
+</tr>
+<tr>
+<td>image</td>
+<td>string</td>
+<td>The Docker image that the Nomad job will pull down on restart</td>
 </tr>
 </tbody></table>
 <h1 id='health'>Health</h1><h2 id='check-libra-health'>Check Libra health</h2><pre class="highlight shell tab-shell"><code>curl <span class="s2">"http://libra.consul/ping"</span>

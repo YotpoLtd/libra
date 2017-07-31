@@ -11,16 +11,22 @@ import (
 )
 
 type RestartRequest struct {
-	Job string `json:"job"`
+	Job   string `json:"job"`
+	Group string `json:"group"`
+	Task  string `json:"task"`
+	Image string `json:"image"`
 }
 
 type RestartResponse struct {
 	Eval string `json:"eval"`
 }
 
-func NewRestartRequest(job string) *RestartRequest {
+func NewRestartRequest(job, group, task, image string) *RestartRequest {
 	return &RestartRequest{
-		Job: job,
+		Job:   job,
+		Group: group,
+		Task:  task,
+		Image: image,
 	}
 }
 
@@ -48,7 +54,7 @@ func RestartHandler(w rest.ResponseWriter, r *rest.Request) {
 	}
 	log.Info("Successfully created Nomad Client")
 
-	evalID, err := nomad.Restart(n, t.Job)
+	evalID, err := nomad.Restart(n, t.Job, t.Group, t.Task, t.Image)
 	if err != nil {
 		log.Error("Problem restarting the job " + err.Error())
 		rest.Error(w, err.Error(), http.StatusInternalServerError)

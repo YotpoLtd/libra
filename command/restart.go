@@ -21,7 +21,7 @@ type RestartCommand struct {
 
 func (c *RestartCommand) Help() string {
 	helpText := `
-Usage: libra restart <job> [options]
+Usage: libra restart <job> <group> <task> <image> [options]
   Restart a Nomad job.
 `
 	return strings.TrimSpace(helpText)
@@ -39,7 +39,7 @@ func (c *RestartCommand) Run(args []string) int {
 		return 1
 	}
 
-	req := api.NewRestartRequest(args[0])
+	req := api.NewRestartRequest(args[0], args[1], args[2], args[3])
 	resp, err := client.NewRequest("/restart", "post", req)
 	if err != nil {
 		c.Ui.Error("Problem restarting the job " + args[1] + ": " + err.Error())

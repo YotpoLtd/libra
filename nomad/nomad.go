@@ -41,16 +41,26 @@ func Scale(client *api.Client, jobID, groupID string, scale, min, max int) (stri
 }
 
 // Restart restarts a job to get the latest docker image
-func Restart(client *api.Client, jobID string) (string, error) {
+func Restart(client *api.Client, jobID, group, task, image string) (string, error) {
 	job, _, err := client.Jobs().Info(jobID, &api.QueryOptions{})
 	if err != nil {
 		return "", err
 	}
-	resp, _, err := client.Jobs().Register(job, &api.WriteOptions{})
-	if err != nil {
-		return "", err
+	for _, tg := range job.TaskGroups {
+		if tg.Name == &group {
+			for _, t := range tg.Tasks {
+				if t.Name == task {
+					t.Config["image"] = image
+				}
+			}
+			resp, _, err := client.Jobs().Register(job, &api.WriteOptions{})
+			if err != nil {
+				return "", err
+			}
+			return resp.EvalID, nil
+		}
 	}
-	return resp.EvalID, nil
+	return "", errors.New("could not find task group")
 }
 
 // SetCapacity sets the count of a task group
