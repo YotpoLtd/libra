@@ -47,7 +47,7 @@ func Restart(client *api.Client, jobID, group, task, image string) (string, erro
 		return "", err
 	}
 	for _, tg := range job.TaskGroups {
-		if tg.Name == &group {
+		if *tg.Name == group {
 			for _, t := range tg.Tasks {
 				if t.Name == task {
 					t.Config["image"] = image
@@ -60,7 +60,7 @@ func Restart(client *api.Client, jobID, group, task, image string) (string, erro
 			return resp.EvalID, nil
 		}
 	}
-	return "", errors.New("could not find task group")
+	return "", errors.New("could not find task group " + group + " in job " + jobID)
 }
 
 // SetCapacity sets the count of a task group
