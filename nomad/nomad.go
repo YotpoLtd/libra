@@ -29,7 +29,10 @@ func NewClient(c Config) (*api.Client, error) {
 
 // Scale increases or decreases the count of a task group
 func Scale(client *api.Client, jobID, groupID string, scale, min, max int) (string, int, error) {
-	job, _, _ := client.Jobs().Info(jobID, &api.QueryOptions{})
+	job, _, err := client.Jobs().Info(jobID, &api.QueryOptions{})
+	if err != nil {
+		return "", 0, err
+	}
 	oldCount := *job.TaskGroups[0].Count
 	newCount := oldCount + scale
 	if newCount < min || newCount > max {
