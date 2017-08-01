@@ -68,7 +68,10 @@ func Restart(client *api.Client, jobID, group, task, image string) (string, erro
 
 // SetCapacity sets the count of a task group
 func SetCapacity(client *api.Client, jobID, groupID string, count, min, max int) (string, int, error) {
-	job, _, _ := client.Jobs().Info(jobID, &api.QueryOptions{})
+	job, _, err := client.Jobs().Info(jobID, &api.QueryOptions{})
+	if err != nil {
+		return "", 0, err
+	}
 	oldCount := *job.TaskGroups[0].Count
 	if count < min || count > max {
 		return "", oldCount, errors.New("the desired count (" + strconv.Itoa(count) + ") is outside of the configured range (" + strconv.Itoa(min) + "-" + strconv.Itoa(max) + ")")
