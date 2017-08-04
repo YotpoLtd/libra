@@ -1,7 +1,7 @@
 ---
 title: API Reference
 
-language_tabs: # must be one of https://git.io/vQNgJ
+language_tabs:
   - shell
 
 toc_footers:
@@ -18,4 +18,4 @@ search: true
 
 # Introduction
 
-Welcome to the Libra API! This API allows the user to manually scale Nomad groups, as well as get information about the status of a Libra server.
+Welcome to the [Libra](https://github.com/underarmour/libra) API! This API allows the user to manually scale Nomad groups, as well as get information about the status of a Libra server.
