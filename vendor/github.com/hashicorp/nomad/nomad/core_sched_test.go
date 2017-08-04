@@ -8,9 +8,11 @@ import (
 	"github.com/hashicorp/nomad/nomad/mock"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/testutil"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestCoreScheduler_EvalGC(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	testutil.WaitForLeader(t, s1.RPC)
@@ -92,6 +94,7 @@ func TestCoreScheduler_EvalGC(t *testing.T) {
 
 // An EvalGC should never reap a batch job that has not been stopped
 func TestCoreScheduler_EvalGC_Batch(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	testutil.WaitForLeader(t, s1.RPC)
@@ -192,6 +195,7 @@ func TestCoreScheduler_EvalGC_Batch(t *testing.T) {
 
 // An EvalGC should  reap a batch job that has been stopped
 func TestCoreScheduler_EvalGC_BatchStopped(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	testutil.WaitForLeader(t, s1.RPC)
@@ -279,6 +283,7 @@ func TestCoreScheduler_EvalGC_BatchStopped(t *testing.T) {
 }
 
 func TestCoreScheduler_EvalGC_Partial(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	testutil.WaitForLeader(t, s1.RPC)
@@ -378,6 +383,7 @@ func TestCoreScheduler_EvalGC_Partial(t *testing.T) {
 }
 
 func TestCoreScheduler_EvalGC_Force(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	testutil.WaitForLeader(t, s1.RPC)
@@ -439,6 +445,7 @@ func TestCoreScheduler_EvalGC_Force(t *testing.T) {
 }
 
 func TestCoreScheduler_NodeGC(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	testutil.WaitForLeader(t, s1.RPC)
@@ -485,6 +492,7 @@ func TestCoreScheduler_NodeGC(t *testing.T) {
 }
 
 func TestCoreScheduler_NodeGC_TerminalAllocs(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	testutil.WaitForLeader(t, s1.RPC)
@@ -539,6 +547,7 @@ func TestCoreScheduler_NodeGC_TerminalAllocs(t *testing.T) {
 }
 
 func TestCoreScheduler_NodeGC_RunningAllocs(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	testutil.WaitForLeader(t, s1.RPC)
@@ -595,6 +604,7 @@ func TestCoreScheduler_NodeGC_RunningAllocs(t *testing.T) {
 }
 
 func TestCoreScheduler_NodeGC_Force(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	testutil.WaitForLeader(t, s1.RPC)
@@ -637,6 +647,7 @@ func TestCoreScheduler_NodeGC_Force(t *testing.T) {
 }
 
 func TestCoreScheduler_JobGC_OutstandingEvals(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	testutil.WaitForLeader(t, s1.RPC)
@@ -759,6 +770,7 @@ func TestCoreScheduler_JobGC_OutstandingEvals(t *testing.T) {
 }
 
 func TestCoreScheduler_JobGC_OutstandingAllocs(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	testutil.WaitForLeader(t, s1.RPC)
@@ -897,6 +909,7 @@ func TestCoreScheduler_JobGC_OutstandingAllocs(t *testing.T) {
 // This test ensures that batch jobs are GC'd in one shot, meaning it all
 // allocs/evals and job or nothing
 func TestCoreScheduler_JobGC_OneShot(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	testutil.WaitForLeader(t, s1.RPC)
@@ -1008,6 +1021,7 @@ func TestCoreScheduler_JobGC_OneShot(t *testing.T) {
 
 // This test ensures that stopped jobs are GCd
 func TestCoreScheduler_JobGC_Stopped(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	testutil.WaitForLeader(t, s1.RPC)
@@ -1104,6 +1118,7 @@ func TestCoreScheduler_JobGC_Stopped(t *testing.T) {
 }
 
 func TestCoreScheduler_JobGC_Force(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	testutil.WaitForLeader(t, s1.RPC)
@@ -1165,6 +1180,7 @@ func TestCoreScheduler_JobGC_Force(t *testing.T) {
 
 // This test ensures parameterized jobs only get gc'd when stopped
 func TestCoreScheduler_JobGC_Parameterized(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	testutil.WaitForLeader(t, s1.RPC)
@@ -1243,6 +1259,7 @@ func TestCoreScheduler_JobGC_Parameterized(t *testing.T) {
 
 // This test ensures periodic jobs don't get GCd til they are stopped
 func TestCoreScheduler_JobGC_Periodic(t *testing.T) {
+	t.Parallel()
 
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
@@ -1315,7 +1332,94 @@ func TestCoreScheduler_JobGC_Periodic(t *testing.T) {
 	}
 }
 
-func TestCoreScheduler_PartitionReap(t *testing.T) {
+func TestCoreScheduler_DeploymentGC(t *testing.T) {
+	t.Parallel()
+	s1 := testServer(t, nil)
+	defer s1.Shutdown()
+	testutil.WaitForLeader(t, s1.RPC)
+	assert := assert.New(t)
+
+	// COMPAT Remove in 0.6: Reset the FSM time table since we reconcile which sets index 0
+	s1.fsm.timetable.table = make([]TimeTableEntry, 1, 10)
+
+	// Insert an active, terminal, and terminal with allocations edeployment
+	state := s1.fsm.State()
+	d1, d2, d3 := mock.Deployment(), mock.Deployment(), mock.Deployment()
+	d1.Status = structs.DeploymentStatusFailed
+	d3.Status = structs.DeploymentStatusSuccessful
+	assert.Nil(state.UpsertDeployment(1000, d1), "UpsertDeployment")
+	assert.Nil(state.UpsertDeployment(1001, d2), "UpsertDeployment")
+	assert.Nil(state.UpsertDeployment(1002, d3), "UpsertDeployment")
+
+	a := mock.Alloc()
+	a.JobID = d3.JobID
+	a.DeploymentID = d3.ID
+	assert.Nil(state.UpsertAllocs(1003, []*structs.Allocation{a}), "UpsertAllocs")
+
+	// Update the time tables to make this work
+	tt := s1.fsm.TimeTable()
+	tt.Witness(2000, time.Now().UTC().Add(-1*s1.config.DeploymentGCThreshold))
+
+	// Create a core scheduler
+	snap, err := state.Snapshot()
+	assert.Nil(err, "Snapshot")
+	core := NewCoreScheduler(s1, snap)
+
+	// Attempt the GC
+	gc := s1.coreJobEval(structs.CoreJobDeploymentGC, 2000)
+	assert.Nil(core.Process(gc), "Process GC")
+
+	// Should be gone
+	ws := memdb.NewWatchSet()
+	out, err := state.DeploymentByID(ws, d1.ID)
+	assert.Nil(err, "DeploymentByID")
+	assert.Nil(out, "Terminal Deployment")
+	out2, err := state.DeploymentByID(ws, d2.ID)
+	assert.Nil(err, "DeploymentByID")
+	assert.NotNil(out2, "Active Deployment")
+	out3, err := state.DeploymentByID(ws, d3.ID)
+	assert.Nil(err, "DeploymentByID")
+	assert.NotNil(out3, "Terminal Deployment With Allocs")
+}
+
+func TestCoreScheduler_DeploymentGC_Force(t *testing.T) {
+	t.Parallel()
+	s1 := testServer(t, nil)
+	defer s1.Shutdown()
+	testutil.WaitForLeader(t, s1.RPC)
+	assert := assert.New(t)
+
+	// COMPAT Remove in 0.6: Reset the FSM time table since we reconcile which sets index 0
+	s1.fsm.timetable.table = make([]TimeTableEntry, 1, 10)
+
+	// Insert terminal and active deployment
+	state := s1.fsm.State()
+	d1, d2 := mock.Deployment(), mock.Deployment()
+	d1.Status = structs.DeploymentStatusFailed
+	assert.Nil(state.UpsertDeployment(1000, d1), "UpsertDeployment")
+	assert.Nil(state.UpsertDeployment(1001, d2), "UpsertDeployment")
+
+	// Create a core scheduler
+	snap, err := state.Snapshot()
+	assert.Nil(err, "Snapshot")
+	core := NewCoreScheduler(s1, snap)
+
+	// Attempt the GC
+	gc := s1.coreJobEval(structs.CoreJobForceGC, 1000)
+	assert.Nil(core.Process(gc), "Process Force GC")
+
+	// Should be gone
+	ws := memdb.NewWatchSet()
+	out, err := state.DeploymentByID(ws, d1.ID)
+	assert.Nil(err, "DeploymentByID")
+	assert.Nil(out, "Terminal Deployment")
+	out2, err := state.DeploymentByID(ws, d2.ID)
+	assert.Nil(err, "DeploymentByID")
+	assert.NotNil(out2, "Active Deployment")
+}
+
+func TestCoreScheduler_PartitionEvalReap(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	testutil.WaitForLeader(t, s1.RPC)
@@ -1335,7 +1439,7 @@ func TestCoreScheduler_PartitionReap(t *testing.T) {
 
 	evals := []string{"a", "b", "c"}
 	allocs := []string{"1", "2", "3"}
-	requests := core.(*CoreScheduler).partitionReap(evals, allocs)
+	requests := core.(*CoreScheduler).partitionEvalReap(evals, allocs)
 	if len(requests) != 3 {
 		t.Fatalf("Expected 3 requests got: %v", requests)
 	}
@@ -1353,5 +1457,41 @@ func TestCoreScheduler_PartitionReap(t *testing.T) {
 	third := requests[2]
 	if len(third.Allocs) != 0 && len(third.Evals) != 2 {
 		t.Fatalf("Unexpected third request: %v", third)
+	}
+}
+
+func TestCoreScheduler_PartitionDeploymentReap(t *testing.T) {
+	t.Parallel()
+	s1 := testServer(t, nil)
+	defer s1.Shutdown()
+	testutil.WaitForLeader(t, s1.RPC)
+
+	// COMPAT Remove in 0.6: Reset the FSM time table since we reconcile which sets index 0
+	s1.fsm.timetable.table = make([]TimeTableEntry, 1, 10)
+
+	// Create a core scheduler
+	snap, err := s1.fsm.State().Snapshot()
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	core := NewCoreScheduler(s1, snap)
+
+	// Set the max ids per reap to something lower.
+	maxIdsPerReap = 2
+
+	deployments := []string{"a", "b", "c"}
+	requests := core.(*CoreScheduler).partitionDeploymentReap(deployments)
+	if len(requests) != 2 {
+		t.Fatalf("Expected 2 requests got: %v", requests)
+	}
+
+	first := requests[0]
+	if len(first.Deployments) != 2 {
+		t.Fatalf("Unexpected first request: %v", first)
+	}
+
+	second := requests[1]
+	if len(second.Deployments) != 1 {
+		t.Fatalf("Unexpected second request: %v", second)
 	}
 }

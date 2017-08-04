@@ -13,6 +13,7 @@ import (
 )
 
 func TestJobs_Register(t *testing.T) {
+	t.Parallel()
 	c, s := makeClient(t, nil, nil)
 	defer s.Stop()
 	jobs := c.Jobs()
@@ -54,6 +55,7 @@ func TestJobs_Register(t *testing.T) {
 }
 
 func TestJobs_Validate(t *testing.T) {
+	t.Parallel()
 	c, s := makeClient(t, nil, nil)
 	defer s.Stop()
 	jobs := c.Jobs()
@@ -81,6 +83,7 @@ func TestJobs_Validate(t *testing.T) {
 }
 
 func TestJobs_Canonicalize(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		name     string
 		expected *Job
@@ -298,6 +301,7 @@ func TestJobs_Canonicalize(t *testing.T) {
 				JobModifyIndex:    helper.Uint64ToPtr(0),
 				Datacenters:       []string{"dc1"},
 				Update: &UpdateStrategy{
+					Stagger:         helper.TimeToPtr(30 * time.Second),
 					MaxParallel:     helper.IntToPtr(1),
 					HealthCheck:     helper.StringToPtr("checks"),
 					MinHealthyTime:  helper.TimeToPtr(10 * time.Second),
@@ -322,6 +326,7 @@ func TestJobs_Canonicalize(t *testing.T) {
 						},
 
 						Update: &UpdateStrategy{
+							Stagger:         helper.TimeToPtr(30 * time.Second),
 							MaxParallel:     helper.IntToPtr(1),
 							HealthCheck:     helper.StringToPtr("checks"),
 							MinHealthyTime:  helper.TimeToPtr(10 * time.Second),
@@ -445,6 +450,7 @@ func TestJobs_Canonicalize(t *testing.T) {
 				ID:       helper.StringToPtr("bar"),
 				ParentID: helper.StringToPtr("lol"),
 				Update: &UpdateStrategy{
+					Stagger:         helper.TimeToPtr(1 * time.Second),
 					MaxParallel:     helper.IntToPtr(1),
 					HealthCheck:     helper.StringToPtr("checks"),
 					MinHealthyTime:  helper.TimeToPtr(10 * time.Second),
@@ -456,6 +462,7 @@ func TestJobs_Canonicalize(t *testing.T) {
 					{
 						Name: helper.StringToPtr("bar"),
 						Update: &UpdateStrategy{
+							Stagger:        helper.TimeToPtr(2 * time.Second),
 							MaxParallel:    helper.IntToPtr(2),
 							HealthCheck:    helper.StringToPtr("manual"),
 							MinHealthyTime: helper.TimeToPtr(1 * time.Second),
@@ -496,6 +503,7 @@ func TestJobs_Canonicalize(t *testing.T) {
 				ModifyIndex:       helper.Uint64ToPtr(0),
 				JobModifyIndex:    helper.Uint64ToPtr(0),
 				Update: &UpdateStrategy{
+					Stagger:         helper.TimeToPtr(1 * time.Second),
 					MaxParallel:     helper.IntToPtr(1),
 					HealthCheck:     helper.StringToPtr("checks"),
 					MinHealthyTime:  helper.TimeToPtr(10 * time.Second),
@@ -519,6 +527,7 @@ func TestJobs_Canonicalize(t *testing.T) {
 							Mode:     helper.StringToPtr("delay"),
 						},
 						Update: &UpdateStrategy{
+							Stagger:         helper.TimeToPtr(2 * time.Second),
 							MaxParallel:     helper.IntToPtr(2),
 							HealthCheck:     helper.StringToPtr("manual"),
 							MinHealthyTime:  helper.TimeToPtr(1 * time.Second),
@@ -550,6 +559,7 @@ func TestJobs_Canonicalize(t *testing.T) {
 							Mode:     helper.StringToPtr("delay"),
 						},
 						Update: &UpdateStrategy{
+							Stagger:         helper.TimeToPtr(1 * time.Second),
 							MaxParallel:     helper.IntToPtr(1),
 							HealthCheck:     helper.StringToPtr("checks"),
 							MinHealthyTime:  helper.TimeToPtr(10 * time.Second),
@@ -575,14 +585,14 @@ func TestJobs_Canonicalize(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.input.Canonicalize()
 			if !reflect.DeepEqual(tc.input, tc.expected) {
-				t.Logf("Name: %v, Diffs:\n%v", tc.name, pretty.Diff(tc.expected, tc.input))
-				t.Fatalf("Name: %v, expected:\n%#v\nactual:\n%#v", tc.name, tc.expected, tc.input)
+				t.Fatalf("Name: %v, Diffs:\n%v", tc.name, pretty.Diff(tc.expected, tc.input))
 			}
 		})
 	}
 }
 
 func TestJobs_EnforceRegister(t *testing.T) {
+	t.Parallel()
 	c, s := makeClient(t, nil, nil)
 	defer s.Stop()
 	jobs := c.Jobs()
@@ -651,6 +661,7 @@ func TestJobs_EnforceRegister(t *testing.T) {
 }
 
 func TestJobs_Revert(t *testing.T) {
+	t.Parallel()
 	c, s := makeClient(t, nil, nil)
 	defer s.Stop()
 	jobs := c.Jobs()
@@ -666,6 +677,7 @@ func TestJobs_Revert(t *testing.T) {
 	}
 	assertWriteMeta(t, wm)
 
+	job.Meta = map[string]string{"foo": "new"}
 	resp, wm, err = jobs.Register(job, nil)
 	if err != nil {
 		t.Fatalf("err: %s", err)
@@ -699,6 +711,7 @@ func TestJobs_Revert(t *testing.T) {
 }
 
 func TestJobs_Info(t *testing.T) {
+	t.Parallel()
 	c, s := makeClient(t, nil, nil)
 	defer s.Stop()
 	jobs := c.Jobs()
@@ -732,12 +745,13 @@ func TestJobs_Info(t *testing.T) {
 }
 
 func TestJobs_Versions(t *testing.T) {
+	t.Parallel()
 	c, s := makeClient(t, nil, nil)
 	defer s.Stop()
 	jobs := c.Jobs()
 
 	// Trying to retrieve a job by ID before it exists returns an error
-	_, _, err := jobs.Versions("job1", nil)
+	_, _, _, err := jobs.Versions("job1", false, nil)
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("expected not found error, got: %#v", err)
 	}
@@ -751,7 +765,7 @@ func TestJobs_Versions(t *testing.T) {
 	assertWriteMeta(t, wm)
 
 	// Query the job again and ensure it exists
-	result, qm, err := jobs.Versions("job1", nil)
+	result, _, qm, err := jobs.Versions("job1", false, nil)
 	if err != nil {
 		t.Fatalf("err: %s", err)
 	}
@@ -764,6 +778,7 @@ func TestJobs_Versions(t *testing.T) {
 }
 
 func TestJobs_PrefixList(t *testing.T) {
+	t.Parallel()
 	c, s := makeClient(t, nil, nil)
 	defer s.Stop()
 	jobs := c.Jobs()
@@ -802,6 +817,7 @@ func TestJobs_PrefixList(t *testing.T) {
 }
 
 func TestJobs_List(t *testing.T) {
+	t.Parallel()
 	c, s := makeClient(t, nil, nil)
 	defer s.Stop()
 	jobs := c.Jobs()
@@ -840,6 +856,7 @@ func TestJobs_List(t *testing.T) {
 }
 
 func TestJobs_Allocations(t *testing.T) {
+	t.Parallel()
 	c, s := makeClient(t, nil, nil)
 	defer s.Stop()
 	jobs := c.Jobs()
@@ -861,6 +878,7 @@ func TestJobs_Allocations(t *testing.T) {
 }
 
 func TestJobs_Evaluations(t *testing.T) {
+	t.Parallel()
 	c, s := makeClient(t, nil, nil)
 	defer s.Stop()
 	jobs := c.Jobs()
@@ -902,6 +920,7 @@ func TestJobs_Evaluations(t *testing.T) {
 }
 
 func TestJobs_Deregister(t *testing.T) {
+	t.Parallel()
 	c, s := makeClient(t, nil, nil)
 	defer s.Stop()
 	jobs := c.Jobs()
@@ -961,6 +980,7 @@ func TestJobs_Deregister(t *testing.T) {
 }
 
 func TestJobs_ForceEvaluate(t *testing.T) {
+	t.Parallel()
 	c, s := makeClient(t, nil, nil)
 	defer s.Stop()
 	jobs := c.Jobs()
@@ -1000,6 +1020,7 @@ func TestJobs_ForceEvaluate(t *testing.T) {
 }
 
 func TestJobs_PeriodicForce(t *testing.T) {
+	t.Parallel()
 	c, s := makeClient(t, nil, nil)
 	defer s.Stop()
 	jobs := c.Jobs()
@@ -1052,6 +1073,7 @@ func TestJobs_PeriodicForce(t *testing.T) {
 }
 
 func TestJobs_Plan(t *testing.T) {
+	t.Parallel()
 	c, s := makeClient(t, nil, nil)
 	defer s.Stop()
 	jobs := c.Jobs()
@@ -1122,6 +1144,7 @@ func TestJobs_Plan(t *testing.T) {
 }
 
 func TestJobs_JobSummary(t *testing.T) {
+	t.Parallel()
 	c, s := makeClient(t, nil, nil)
 	defer s.Stop()
 	jobs := c.Jobs()
@@ -1159,6 +1182,7 @@ func TestJobs_JobSummary(t *testing.T) {
 }
 
 func TestJobs_NewBatchJob(t *testing.T) {
+	t.Parallel()
 	job := NewBatchJob("job1", "myjob", "region1", 5)
 	expect := &Job{
 		Region:   helper.StringToPtr("region1"),
@@ -1173,6 +1197,7 @@ func TestJobs_NewBatchJob(t *testing.T) {
 }
 
 func TestJobs_NewServiceJob(t *testing.T) {
+	t.Parallel()
 	job := NewServiceJob("job1", "myjob", "region1", 5)
 	expect := &Job{
 		Region:   helper.StringToPtr("region1"),
@@ -1187,6 +1212,7 @@ func TestJobs_NewServiceJob(t *testing.T) {
 }
 
 func TestJobs_SetMeta(t *testing.T) {
+	t.Parallel()
 	job := &Job{Meta: nil}
 
 	// Initializes a nil map
@@ -1209,6 +1235,7 @@ func TestJobs_SetMeta(t *testing.T) {
 }
 
 func TestJobs_Constrain(t *testing.T) {
+	t.Parallel()
 	job := &Job{Constraints: nil}
 
 	// Create and add a constraint
@@ -1242,6 +1269,7 @@ func TestJobs_Constrain(t *testing.T) {
 }
 
 func TestJobs_Sort(t *testing.T) {
+	t.Parallel()
 	jobs := []*JobListStub{
 		&JobListStub{ID: "job2"},
 		&JobListStub{ID: "job0"},

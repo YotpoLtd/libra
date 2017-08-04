@@ -333,6 +333,24 @@ func (d *DockerDriver) Fingerprint(cfg *config.Config, node *structs.Node) (bool
 		node.Attributes["driver."+dockerVolumesConfigOption] = "1"
 	}
 
+	// Detect bridge IP address - #2785
+	if nets, err := client.ListNetworks(); err != nil {
+		d.logger.Printf("[WARN] driver.docker: error discovering bridge IP: %v", err)
+	} else {
+		for _, n := range nets {
+			if n.Name != "bridge" {
+				continue
+			}
+
+			if len(n.IPAM.Config) == 0 {
+				d.logger.Printf("[WARN] driver.docker: no IPAM config for bridge network")
+				break
+			}
+
+			node.Attributes["driver.docker.bridge_ip"] = n.IPAM.Config[0].Gateway
+		}
+	}
+
 	d.fingerprintSuccess = helper.BoolToPtr(true)
 	return true, nil
 }
@@ -575,15 +593,18 @@ func (d *DockerDriver) Start(ctx *ExecContext, task *structs.Task) (*StartRespon
 			pluginClient.Kill()
 			return nil, fmt.Errorf("Failed to start container %s: %s", container.ID, err)
 		}
+
 		// InspectContainer to get all of the container metadata as
 		// much of the metadata (eg networking) isn't populated until
 		// the container is started
-		if container, err = client.InspectContainer(container.ID); err != nil {
+		runningContainer, err := client.InspectContainer(container.ID)
+		if err != nil {
 			err = fmt.Errorf("failed to inspect started container %s: %s", container.ID, err)
 			d.logger.Printf("[ERR] driver.docker: %v", err)
 			pluginClient.Kill()
 			return nil, structs.NewRecoverableError(err, true)
 		}
+		container = runningContainer
 		d.logger.Printf("[INFO] driver.docker: started container %s", container.ID)
 	} else {
 		d.logger.Printf("[DEBUG] driver.docker: re-attaching to container %s with status %q",
@@ -1179,10 +1200,10 @@ CREATE:
 		// container names with a / pre-pended to the Nomad generated container names
 		containerName := "/" + config.Name
 		d.logger.Printf("[DEBUG] driver.docker: searching for container name %q to purge", containerName)
-		for _, container := range containers {
+		for _, shimContainer := range containers {
 			d.logger.Printf("[DEBUG] driver.docker: listed container %+v", container)
 			found := false
-			for _, name := range container.Names {
+			for _, name := range shimContainer.Names {
 				if name == containerName {
 					found = true
 					break
@@ -1195,9 +1216,15 @@ CREATE:
 
 			// Inspect the container and if the container isn't dead then return
 			// the container
-			container, err := client.InspectContainer(container.ID)
+			container, err := client.InspectContainer(shimContainer.ID)
 			if err != nil {
-				return nil, recoverableErrTimeouts(fmt.Errorf("Failed to inspect container %s: %s", container.ID, err))
+				err = fmt.Errorf("Failed to inspect container %s: %s", shimContainer.ID, err)
+
+				// This error is always recoverable as it could
+				// be caused by races between listing
+				// containers and this container being removed.
+				// See #2802
+				return nil, structs.NewRecoverableError(err, true)
 			}
 			if container != nil && (container.State.Running || container.State.FinishedAt.IsZero()) {
 				return container, nil

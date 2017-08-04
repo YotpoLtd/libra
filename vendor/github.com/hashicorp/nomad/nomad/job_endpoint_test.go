@@ -13,9 +13,12 @@ import (
 	"github.com/hashicorp/nomad/nomad/mock"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/testutil"
+	"github.com/kr/pretty"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestJobEndpoint_Register(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -91,6 +94,7 @@ func TestJobEndpoint_Register(t *testing.T) {
 }
 
 func TestJobEndpoint_Register_InvalidDriverConfig(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -119,37 +123,8 @@ func TestJobEndpoint_Register_InvalidDriverConfig(t *testing.T) {
 	}
 }
 
-func TestJobEndpoint_Register_UpdateWarning(t *testing.T) {
-	s1 := testServer(t, func(c *Config) {
-		c.NumSchedulers = 0 // Prevent automatic dequeue
-	})
-	defer s1.Shutdown()
-	codec := rpcClient(t, s1)
-	testutil.WaitForLeader(t, s1.RPC)
-
-	// Create the register request with a job containing an invalid driver
-	// config
-	job := mock.Job()
-	job.Update.Stagger = 1 * time.Second
-	job.Update.MaxParallel = 1
-	req := &structs.JobRegisterRequest{
-		Job:          job,
-		WriteRequest: structs.WriteRequest{Region: "global"},
-	}
-
-	// Fetch the response
-	var resp structs.JobRegisterResponse
-	err := msgpackrpc.CallWithCodec(codec, "Job.Register", req, &resp)
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-
-	if !strings.Contains(resp.Warnings, "Update stagger deprecated") {
-		t.Fatalf("expected a deprecation warning but got: %v", err)
-	}
-}
-
 func TestJobEndpoint_Register_Payload(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -179,6 +154,7 @@ func TestJobEndpoint_Register_Payload(t *testing.T) {
 }
 
 func TestJobEndpoint_Register_Existing(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -232,6 +208,9 @@ func TestJobEndpoint_Register_Existing(t *testing.T) {
 	if out.Priority != 100 {
 		t.Fatalf("expected update")
 	}
+	if out.Version != 1 {
+		t.Fatalf("expected update")
+	}
 
 	// Lookup the evaluation
 	eval, err := state.EvalByID(ws, resp.EvalID)
@@ -263,9 +242,32 @@ func TestJobEndpoint_Register_Existing(t *testing.T) {
 	if eval.Status != structs.EvalStatusPending {
 		t.Fatalf("bad: %#v", eval)
 	}
+
+	if err := msgpackrpc.CallWithCodec(codec, "Job.Register", req, &resp); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if resp.Index == 0 {
+		t.Fatalf("bad index: %d", resp.Index)
+	}
+
+	// Check to ensure the job version didn't get bumped becasue we submitted
+	// the same job
+	state = s1.fsm.State()
+	ws = memdb.NewWatchSet()
+	out, err = state.JobByID(ws, job.ID)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if out == nil {
+		t.Fatalf("expected job")
+	}
+	if out.Version != 1 {
+		t.Fatalf("expected no update; got %v; diff %v", out.Version, pretty.Diff(job2, out))
+	}
 }
 
 func TestJobEndpoint_Register_Periodic(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -314,6 +316,7 @@ func TestJobEndpoint_Register_Periodic(t *testing.T) {
 }
 
 func TestJobEndpoint_Register_ParameterizedJob(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -358,6 +361,7 @@ func TestJobEndpoint_Register_ParameterizedJob(t *testing.T) {
 }
 
 func TestJobEndpoint_Register_EnforceIndex(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -471,6 +475,7 @@ func TestJobEndpoint_Register_EnforceIndex(t *testing.T) {
 }
 
 func TestJobEndpoint_Register_Vault_Disabled(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 		f := false
@@ -500,6 +505,7 @@ func TestJobEndpoint_Register_Vault_Disabled(t *testing.T) {
 }
 
 func TestJobEndpoint_Register_Vault_AllowUnauthenticated(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -549,6 +555,7 @@ func TestJobEndpoint_Register_Vault_AllowUnauthenticated(t *testing.T) {
 }
 
 func TestJobEndpoint_Register_Vault_NoToken(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -585,6 +592,7 @@ func TestJobEndpoint_Register_Vault_NoToken(t *testing.T) {
 }
 
 func TestJobEndpoint_Register_Vault_Policies(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -719,6 +727,7 @@ func TestJobEndpoint_Register_Vault_Policies(t *testing.T) {
 }
 
 func TestJobEndpoint_Revert(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -808,7 +817,8 @@ func TestJobEndpoint_Revert(t *testing.T) {
 		t.Fatalf("bad job modify index: %d", resp.JobModifyIndex)
 	}
 
-	// Create revert request and don't enforce
+	// Create revert request and don't enforce. We are at version 2 but it is
+	// the same as version 0
 	revertReq = &structs.JobRevertRequest{
 		JobID:        job.ID,
 		JobVersion:   0,
@@ -843,8 +853,8 @@ func TestJobEndpoint_Revert(t *testing.T) {
 	if out.Priority != job.Priority {
 		t.Fatalf("priority mis-match")
 	}
-	if out.Version != 3 {
-		t.Fatalf("got version %d; want %d", out.Version, 3)
+	if out.Version != 2 {
+		t.Fatalf("got version %d; want %d", out.Version, 2)
 	}
 
 	eout, err := state.EvalByID(ws, resp.EvalID)
@@ -862,12 +872,70 @@ func TestJobEndpoint_Revert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
-	if len(versions) != 4 {
-		t.Fatalf("got %d versions; want %d", len(versions), 4)
+	if len(versions) != 3 {
+		t.Fatalf("got %d versions; want %d", len(versions), 3)
+	}
+}
+
+func TestJobEndpoint_Stable(t *testing.T) {
+	t.Parallel()
+	s1 := testServer(t, func(c *Config) {
+		c.NumSchedulers = 0 // Prevent automatic dequeue
+	})
+	defer s1.Shutdown()
+	codec := rpcClient(t, s1)
+	testutil.WaitForLeader(t, s1.RPC)
+
+	// Create the initial register request
+	job := mock.Job()
+	req := &structs.JobRegisterRequest{
+		Job:          job,
+		WriteRequest: structs.WriteRequest{Region: "global"},
+	}
+
+	// Fetch the response
+	var resp structs.JobRegisterResponse
+	if err := msgpackrpc.CallWithCodec(codec, "Job.Register", req, &resp); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if resp.Index == 0 {
+		t.Fatalf("bad index: %d", resp.Index)
+	}
+
+	// Create stablility request
+	stableReq := &structs.JobStabilityRequest{
+		JobID:        job.ID,
+		JobVersion:   0,
+		Stable:       true,
+		WriteRequest: structs.WriteRequest{Region: "global"},
+	}
+
+	// Fetch the response
+	var stableResp structs.JobStabilityResponse
+	if err := msgpackrpc.CallWithCodec(codec, "Job.Stable", stableReq, &stableResp); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if stableResp.Index == 0 {
+		t.Fatalf("bad index: %d", resp.Index)
+	}
+
+	// Check that the job is marked stable
+	state := s1.fsm.State()
+	ws := memdb.NewWatchSet()
+	out, err := state.JobByID(ws, job.ID)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if out == nil {
+		t.Fatalf("expected job")
+	}
+	if !out.Stable {
+		t.Fatalf("Job is not marked stable")
 	}
 }
 
 func TestJobEndpoint_Evaluate(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -940,6 +1008,7 @@ func TestJobEndpoint_Evaluate(t *testing.T) {
 }
 
 func TestJobEndpoint_Evaluate_Periodic(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -976,6 +1045,7 @@ func TestJobEndpoint_Evaluate_Periodic(t *testing.T) {
 }
 
 func TestJobEndpoint_Evaluate_ParameterizedJob(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -1014,6 +1084,7 @@ func TestJobEndpoint_Evaluate_ParameterizedJob(t *testing.T) {
 }
 
 func TestJobEndpoint_Deregister(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -1149,6 +1220,7 @@ func TestJobEndpoint_Deregister(t *testing.T) {
 }
 
 func TestJobEndpoint_Deregister_NonExistent(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -1205,6 +1277,7 @@ func TestJobEndpoint_Deregister_NonExistent(t *testing.T) {
 }
 
 func TestJobEndpoint_Deregister_Periodic(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -1256,6 +1329,7 @@ func TestJobEndpoint_Deregister_Periodic(t *testing.T) {
 }
 
 func TestJobEndpoint_Deregister_ParameterizedJob(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -1309,6 +1383,7 @@ func TestJobEndpoint_Deregister_ParameterizedJob(t *testing.T) {
 }
 
 func TestJobEndpoint_GetJob(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	codec := rpcClient(t, s1)
@@ -1357,6 +1432,10 @@ func TestJobEndpoint_GetJob(t *testing.T) {
 		}
 	}
 
+	// Clear the submit times
+	j.SubmitTime = 0
+	resp2.Job.SubmitTime = 0
+
 	if !reflect.DeepEqual(j, resp2.Job) {
 		t.Fatalf("bad: %#v %#v", job, resp2.Job)
 	}
@@ -1375,6 +1454,7 @@ func TestJobEndpoint_GetJob(t *testing.T) {
 }
 
 func TestJobEndpoint_GetJob_Blocking(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	state := s1.fsm.State()
@@ -1449,6 +1529,7 @@ func TestJobEndpoint_GetJob_Blocking(t *testing.T) {
 }
 
 func TestJobEndpoint_GetJobVersions(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	codec := rpcClient(t, s1)
@@ -1475,7 +1556,7 @@ func TestJobEndpoint_GetJobVersions(t *testing.T) {
 	}
 
 	// Lookup the job
-	get := &structs.JobSpecificRequest{
+	get := &structs.JobVersionsRequest{
 		JobID:        job.ID,
 		QueryOptions: structs.QueryOptions{Region: "global"},
 	}
@@ -1513,7 +1594,98 @@ func TestJobEndpoint_GetJobVersions(t *testing.T) {
 	}
 }
 
+func TestJobEndpoint_GetJobVersions_Diff(t *testing.T) {
+	t.Parallel()
+	s1 := testServer(t, nil)
+	defer s1.Shutdown()
+	codec := rpcClient(t, s1)
+	testutil.WaitForLeader(t, s1.RPC)
+
+	// Create the register request
+	job := mock.Job()
+	job.Priority = 88
+	reg := &structs.JobRegisterRequest{
+		Job:          job,
+		WriteRequest: structs.WriteRequest{Region: "global"},
+	}
+
+	// Fetch the response
+	var resp structs.JobRegisterResponse
+	if err := msgpackrpc.CallWithCodec(codec, "Job.Register", reg, &resp); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	// Register the job again to create another version
+	job.Priority = 90
+	if err := msgpackrpc.CallWithCodec(codec, "Job.Register", reg, &resp); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	// Register the job again to create another version
+	job.Priority = 100
+	if err := msgpackrpc.CallWithCodec(codec, "Job.Register", reg, &resp); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	// Lookup the job
+	get := &structs.JobVersionsRequest{
+		JobID:        job.ID,
+		Diffs:        true,
+		QueryOptions: structs.QueryOptions{Region: "global"},
+	}
+	var versionsResp structs.JobVersionsResponse
+	if err := msgpackrpc.CallWithCodec(codec, "Job.GetJobVersions", get, &versionsResp); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if versionsResp.Index != resp.JobModifyIndex {
+		t.Fatalf("Bad index: %d %d", versionsResp.Index, resp.Index)
+	}
+
+	// Make sure there are two job versions
+	versions := versionsResp.Versions
+	if l := len(versions); l != 3 {
+		t.Fatalf("Got %d versions; want 3", l)
+	}
+
+	if v := versions[0]; v.Priority != 100 || v.ID != job.ID || v.Version != 2 {
+		t.Fatalf("bad: %+v", v)
+	}
+	if v := versions[1]; v.Priority != 90 || v.ID != job.ID || v.Version != 1 {
+		t.Fatalf("bad: %+v", v)
+	}
+	if v := versions[2]; v.Priority != 88 || v.ID != job.ID || v.Version != 0 {
+		t.Fatalf("bad: %+v", v)
+	}
+
+	// Ensure we got diffs
+	diffs := versionsResp.Diffs
+	if l := len(diffs); l != 2 {
+		t.Fatalf("Got %d diffs; want 2", l)
+	}
+	d1 := diffs[0]
+	if len(d1.Fields) != 1 {
+		t.Fatalf("Got too many diffs: %#v", d1)
+	}
+	if d1.Fields[0].Name != "Priority" {
+		t.Fatalf("Got wrong field: %#v", d1)
+	}
+	if d1.Fields[0].Old != "90" && d1.Fields[0].New != "100" {
+		t.Fatalf("Got wrong field values: %#v", d1)
+	}
+	d2 := diffs[1]
+	if len(d2.Fields) != 1 {
+		t.Fatalf("Got too many diffs: %#v", d2)
+	}
+	if d2.Fields[0].Name != "Priority" {
+		t.Fatalf("Got wrong field: %#v", d2)
+	}
+	if d2.Fields[0].Old != "88" && d1.Fields[0].New != "90" {
+		t.Fatalf("Got wrong field values: %#v", d2)
+	}
+}
+
 func TestJobEndpoint_GetJobVersions_Blocking(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	state := s1.fsm.State()
@@ -1541,7 +1713,7 @@ func TestJobEndpoint_GetJobVersions_Blocking(t *testing.T) {
 		}
 	})
 
-	req := &structs.JobSpecificRequest{
+	req := &structs.JobVersionsRequest{
 		JobID: job2.ID,
 		QueryOptions: structs.QueryOptions{
 			Region:        "global",
@@ -1571,7 +1743,7 @@ func TestJobEndpoint_GetJobVersions_Blocking(t *testing.T) {
 		}
 	})
 
-	req2 := &structs.JobSpecificRequest{
+	req2 := &structs.JobVersionsRequest{
 		JobID: job3.ID,
 		QueryOptions: structs.QueryOptions{
 			Region:        "global",
@@ -1596,6 +1768,7 @@ func TestJobEndpoint_GetJobVersions_Blocking(t *testing.T) {
 }
 
 func TestJobEndpoint_GetJobSummary(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -1649,6 +1822,7 @@ func TestJobEndpoint_GetJobSummary(t *testing.T) {
 }
 
 func TestJobEndpoint_GetJobSummary_Blocking(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	state := s1.fsm.State()
@@ -1740,6 +1914,7 @@ func TestJobEndpoint_GetJobSummary_Blocking(t *testing.T) {
 }
 
 func TestJobEndpoint_ListJobs(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	codec := rpcClient(t, s1)
@@ -1793,6 +1968,7 @@ func TestJobEndpoint_ListJobs(t *testing.T) {
 }
 
 func TestJobEndpoint_ListJobs_Blocking(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	state := s1.fsm.State()
@@ -1857,6 +2033,7 @@ func TestJobEndpoint_ListJobs_Blocking(t *testing.T) {
 }
 
 func TestJobEndpoint_Allocations(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	codec := rpcClient(t, s1)
@@ -1894,6 +2071,7 @@ func TestJobEndpoint_Allocations(t *testing.T) {
 }
 
 func TestJobEndpoint_Allocations_Blocking(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	codec := rpcClient(t, s1)
@@ -1949,6 +2127,7 @@ func TestJobEndpoint_Allocations_Blocking(t *testing.T) {
 }
 
 func TestJobEndpoint_Evaluations(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	codec := rpcClient(t, s1)
@@ -1984,6 +2163,7 @@ func TestJobEndpoint_Evaluations(t *testing.T) {
 }
 
 func TestJobEndpoint_Evaluations_Blocking(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, nil)
 	defer s1.Shutdown()
 	codec := rpcClient(t, s1)
@@ -2036,7 +2216,161 @@ func TestJobEndpoint_Evaluations_Blocking(t *testing.T) {
 	}
 }
 
+func TestJobEndpoint_Deployments(t *testing.T) {
+	t.Parallel()
+	s1 := testServer(t, nil)
+	defer s1.Shutdown()
+	codec := rpcClient(t, s1)
+	testutil.WaitForLeader(t, s1.RPC)
+	state := s1.fsm.State()
+	assert := assert.New(t)
+
+	// Create the register request
+	j := mock.Job()
+	d1 := mock.Deployment()
+	d2 := mock.Deployment()
+	d1.JobID = j.ID
+	d2.JobID = j.ID
+	assert.Nil(state.UpsertJob(1000, j), "UpsertJob")
+	assert.Nil(state.UpsertDeployment(1001, d1), "UpsertDeployment")
+	assert.Nil(state.UpsertDeployment(1002, d2), "UpsertDeployment")
+
+	// Lookup the jobs
+	get := &structs.JobSpecificRequest{
+		JobID:        j.ID,
+		QueryOptions: structs.QueryOptions{Region: "global"},
+	}
+	var resp structs.DeploymentListResponse
+	assert.Nil(msgpackrpc.CallWithCodec(codec, "Job.Deployments", get, &resp), "RPC")
+	assert.EqualValues(1002, resp.Index, "response index")
+	assert.Len(resp.Deployments, 2, "deployments for job")
+}
+
+func TestJobEndpoint_Deployments_Blocking(t *testing.T) {
+	t.Parallel()
+	s1 := testServer(t, nil)
+	defer s1.Shutdown()
+	codec := rpcClient(t, s1)
+	testutil.WaitForLeader(t, s1.RPC)
+	state := s1.fsm.State()
+	assert := assert.New(t)
+
+	// Create the register request
+	j := mock.Job()
+	d1 := mock.Deployment()
+	d2 := mock.Deployment()
+	d2.JobID = j.ID
+	assert.Nil(state.UpsertJob(50, j), "UpsertJob")
+
+	// First upsert an unrelated eval
+	time.AfterFunc(100*time.Millisecond, func() {
+		assert.Nil(state.UpsertDeployment(100, d1), "UpsertDeployment")
+	})
+
+	// Upsert an eval for the job we are interested in later
+	time.AfterFunc(200*time.Millisecond, func() {
+		assert.Nil(state.UpsertDeployment(200, d2), "UpsertDeployment")
+	})
+
+	// Lookup the jobs
+	get := &structs.JobSpecificRequest{
+		JobID: d2.JobID,
+		QueryOptions: structs.QueryOptions{
+			Region:        "global",
+			MinQueryIndex: 150,
+		},
+	}
+	var resp structs.DeploymentListResponse
+	start := time.Now()
+	assert.Nil(msgpackrpc.CallWithCodec(codec, "Job.Deployments", get, &resp), "RPC")
+	assert.EqualValues(200, resp.Index, "response index")
+	assert.Len(resp.Deployments, 1, "deployments for job")
+	assert.Equal(d2.ID, resp.Deployments[0].ID, "returned deployment")
+	if elapsed := time.Since(start); elapsed < 200*time.Millisecond {
+		t.Fatalf("should block (returned in %s) %#v", elapsed, resp)
+	}
+}
+
+func TestJobEndpoint_LatestDeployment(t *testing.T) {
+	t.Parallel()
+	s1 := testServer(t, nil)
+	defer s1.Shutdown()
+	codec := rpcClient(t, s1)
+	testutil.WaitForLeader(t, s1.RPC)
+	state := s1.fsm.State()
+	assert := assert.New(t)
+
+	// Create the register request
+	j := mock.Job()
+	d1 := mock.Deployment()
+	d2 := mock.Deployment()
+	d1.JobID = j.ID
+	d2.JobID = j.ID
+	d2.CreateIndex = d1.CreateIndex + 100
+	d2.ModifyIndex = d2.CreateIndex + 100
+	assert.Nil(state.UpsertJob(1000, j), "UpsertJob")
+	assert.Nil(state.UpsertDeployment(1001, d1), "UpsertDeployment")
+	assert.Nil(state.UpsertDeployment(1002, d2), "UpsertDeployment")
+
+	// Lookup the jobs
+	get := &structs.JobSpecificRequest{
+		JobID:        j.ID,
+		QueryOptions: structs.QueryOptions{Region: "global"},
+	}
+	var resp structs.SingleDeploymentResponse
+	assert.Nil(msgpackrpc.CallWithCodec(codec, "Job.LatestDeployment", get, &resp), "RPC")
+	assert.EqualValues(1002, resp.Index, "response index")
+	assert.NotNil(resp.Deployment, "want a deployment")
+	assert.Equal(d2.ID, resp.Deployment.ID, "latest deployment for job")
+}
+
+func TestJobEndpoint_LatestDeployment_Blocking(t *testing.T) {
+	t.Parallel()
+	s1 := testServer(t, nil)
+	defer s1.Shutdown()
+	codec := rpcClient(t, s1)
+	testutil.WaitForLeader(t, s1.RPC)
+	state := s1.fsm.State()
+	assert := assert.New(t)
+
+	// Create the register request
+	j := mock.Job()
+	d1 := mock.Deployment()
+	d2 := mock.Deployment()
+	d2.JobID = j.ID
+	assert.Nil(state.UpsertJob(50, j), "UpsertJob")
+
+	// First upsert an unrelated eval
+	time.AfterFunc(100*time.Millisecond, func() {
+		assert.Nil(state.UpsertDeployment(100, d1), "UpsertDeployment")
+	})
+
+	// Upsert an eval for the job we are interested in later
+	time.AfterFunc(200*time.Millisecond, func() {
+		assert.Nil(state.UpsertDeployment(200, d2), "UpsertDeployment")
+	})
+
+	// Lookup the jobs
+	get := &structs.JobSpecificRequest{
+		JobID: d2.JobID,
+		QueryOptions: structs.QueryOptions{
+			Region:        "global",
+			MinQueryIndex: 150,
+		},
+	}
+	var resp structs.SingleDeploymentResponse
+	start := time.Now()
+	assert.Nil(msgpackrpc.CallWithCodec(codec, "Job.LatestDeployment", get, &resp), "RPC")
+	assert.EqualValues(200, resp.Index, "response index")
+	assert.NotNil(resp.Deployment, "deployment for job")
+	assert.Equal(d2.ID, resp.Deployment.ID, "returned deployment")
+	if elapsed := time.Since(start); elapsed < 200*time.Millisecond {
+		t.Fatalf("should block (returned in %s) %#v", elapsed, resp)
+	}
+}
+
 func TestJobEndpoint_Plan_WithDiff(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -2089,6 +2423,7 @@ func TestJobEndpoint_Plan_WithDiff(t *testing.T) {
 }
 
 func TestJobEndpoint_Plan_NoDiff(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -2141,6 +2476,7 @@ func TestJobEndpoint_Plan_NoDiff(t *testing.T) {
 }
 
 func TestJobEndpoint_ImplicitConstraints_Vault(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -2206,6 +2542,7 @@ func TestJobEndpoint_ImplicitConstraints_Vault(t *testing.T) {
 }
 
 func TestJobEndpoint_ImplicitConstraints_Signals(t *testing.T) {
+	t.Parallel()
 	s1 := testServer(t, func(c *Config) {
 		c.NumSchedulers = 0 // Prevent automatic dequeue
 	})
@@ -2264,6 +2601,7 @@ func TestJobEndpoint_ImplicitConstraints_Signals(t *testing.T) {
 }
 
 func TestJobEndpoint_ValidateJob_InvalidDriverConf(t *testing.T) {
+	t.Parallel()
 	// Create a mock job with an invalid config
 	job := mock.Job()
 	job.TaskGroups[0].Tasks[0].Config = map[string]interface{}{
@@ -2281,6 +2619,7 @@ func TestJobEndpoint_ValidateJob_InvalidDriverConf(t *testing.T) {
 }
 
 func TestJobEndpoint_ValidateJob_InvalidSignals(t *testing.T) {
+	t.Parallel()
 	// Create a mock job that wants to send a signal to a driver that can't
 	job := mock.Job()
 	job.TaskGroups[0].Tasks[0].Driver = "qemu"
@@ -2300,23 +2639,8 @@ func TestJobEndpoint_ValidateJob_InvalidSignals(t *testing.T) {
 	}
 }
 
-func TestJobEndpoint_ValidateJob_UpdateWarning(t *testing.T) {
-	// Create a mock job with an invalid config
-	job := mock.Job()
-	job.Update.Stagger = 1 * time.Second
-	job.Update.MaxParallel = 1
-
-	err, warnings := validateJob(job)
-	if err != nil {
-		t.Fatalf("Unexpected validation error; got %v", err)
-	}
-
-	if !strings.Contains(warnings.Error(), "Update stagger deprecated") {
-		t.Fatalf("expected a deprecation warning but got: %v", err)
-	}
-}
-
 func TestJobEndpoint_ValidateJobUpdate(t *testing.T) {
+	t.Parallel()
 	old := mock.Job()
 	new := mock.Job()
 
@@ -2349,6 +2673,7 @@ func TestJobEndpoint_ValidateJobUpdate(t *testing.T) {
 }
 
 func TestJobEndpoint_Dispatch(t *testing.T) {
+	t.Parallel()
 
 	// No requirements
 	d1 := mock.Job()

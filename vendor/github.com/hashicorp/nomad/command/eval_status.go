@@ -72,41 +72,21 @@ func (c *EvalStatusCommand) Run(args []string) int {
 	}
 
 	// If args not specified but output format is specified, format and output the evaluations data list
-	if len(args) == 0 {
-		var format string
-		if json && len(tmpl) > 0 {
-			c.Ui.Error("Both -json and -t are not allowed")
+	if len(args) == 0 && json || len(tmpl) > 0 {
+		evals, _, err := client.Evaluations().List(nil)
+		if err != nil {
+			c.Ui.Error(fmt.Sprintf("Error querying evaluations: %v", err))
 			return 1
-		} else if json {
-			format = "json"
-		} else if len(tmpl) > 0 {
-			format = "template"
 		}
-		if len(format) > 0 {
-			evals, _, err := client.Evaluations().List(nil)
-			if err != nil {
-				c.Ui.Error(fmt.Sprintf("Error querying evaluations: %v", err))
-				return 1
-			}
-			// Return nothing if no evaluations found
-			if len(evals) == 0 {
-				return 0
-			}
 
-			f, err := DataFormat(format, tmpl)
-			if err != nil {
-				c.Ui.Error(fmt.Sprintf("Error getting formatter: %s", err))
-				return 1
-			}
-
-			out, err := f.TransformData(evals)
-			if err != nil {
-				c.Ui.Error(fmt.Sprintf("Error formatting the data: %s", err))
-				return 1
-			}
-			c.Ui.Output(out)
-			return 0
+		out, err := Format(json, tmpl, evals)
+		if err != nil {
+			c.Ui.Error(err.Error())
+			return 1
 		}
+
+		c.Ui.Output(out)
+		return 0
 	}
 
 	if len(args) != 1 {
@@ -157,8 +137,8 @@ func (c *EvalStatusCommand) Run(args []string) int {
 				failures,
 			)
 		}
-		c.Ui.Output(fmt.Sprintf("Prefix matched multiple evaluations\n\n%s", formatList(out)))
-		return 0
+		c.Ui.Error(fmt.Sprintf("Prefix matched multiple evaluations\n\n%s", formatList(out)))
+		return 1
 	}
 
 	// If we are in monitor mode, monitor and exit
@@ -175,24 +155,13 @@ func (c *EvalStatusCommand) Run(args []string) int {
 	}
 
 	// If output format is specified, format and output the data
-	var format string
-	if json {
-		format = "json"
-	} else if len(tmpl) > 0 {
-		format = "template"
-	}
-	if len(format) > 0 {
-		f, err := DataFormat(format, tmpl)
+	if json || len(tmpl) > 0 {
+		out, err := Format(json, tmpl, eval)
 		if err != nil {
-			c.Ui.Error(fmt.Sprintf("Error getting formatter: %s", err))
+			c.Ui.Error(err.Error())
 			return 1
 		}
 
-		out, err := f.TransformData(eval)
-		if err != nil {
-			c.Ui.Error(fmt.Sprintf("Error formatting the data: %s", err))
-			return 1
-		}
 		c.Ui.Output(out)
 		return 0
 	}
@@ -260,7 +229,7 @@ func sortedTaskGroupFromMetrics(groups map[string]*api.AllocationMetric) []strin
 
 func getTriggerDetails(eval *api.Evaluation) (noun, subject string) {
 	switch eval.TriggeredBy {
-	case "job-register", "job-deregister", "periodic-job", "rolling-update":
+	case "job-register", "job-deregister", "periodic-job", "rolling-update", "deployment-watcher":
 		return "Job ID", eval.JobID
 	case "node-update":
 		return "Node ID", eval.NodeID

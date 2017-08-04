@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/nomad/api"
 	"github.com/hashicorp/nomad/scheduler"
 	"github.com/mitchellh/colorstring"
+	"github.com/posener/complete"
 )
 
 const (
@@ -75,6 +76,14 @@ Plan Options:
 
 func (c *PlanCommand) Synopsis() string {
 	return "Dry-run a job update to determine its effects"
+}
+
+func (c *PlanCommand) AutocompleteFlags() complete.Flags {
+	return nil
+}
+
+func (c *PlanCommand) AutocompleteArgs() complete.Predictor {
+	return complete.PredictOr(complete.PredictFiles("*.nomad"), complete.PredictFiles("*.hcl"))
 }
 
 func (c *PlanCommand) Run(args []string) int {
@@ -151,7 +160,7 @@ func (c *PlanCommand) Run(args []string) int {
 func getExitCode(resp *api.JobPlanResponse) int {
 	// Check for changes
 	for _, d := range resp.Annotations.DesiredTGUpdates {
-		if d.Stop+d.Place+d.Migrate+d.DestructiveUpdate > 0 {
+		if d.Stop+d.Place+d.Migrate+d.DestructiveUpdate+d.Canary > 0 {
 			return 1
 		}
 	}
@@ -288,6 +297,8 @@ func formatTaskGroupDiff(tg *api.TaskGroupDiff, tgPrefix int, verbose bool) stri
 				color = "[cyan]"
 			case scheduler.UpdateTypeDestructiveUpdate:
 				color = "[yellow]"
+			case scheduler.UpdateTypeCanary:
+				color = "[light_yellow]"
 			}
 			updates = append(updates, fmt.Sprintf("[reset]%s%d %s", color, count, updateType))
 		}

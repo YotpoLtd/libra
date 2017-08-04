@@ -181,6 +181,7 @@ func TestEnvironment_AsList(t *testing.T) {
 		"NOMAD_HOST_PORT_http=80",
 		"NOMAD_HOST_PORT_https=8080",
 		"NOMAD_TASK_NAME=web",
+		"NOMAD_GROUP_NAME=web",
 		"NOMAD_ADDR_ssh_other=192.168.0.100:1234",
 		"NOMAD_ADDR_ssh_ssh=192.168.0.100:22",
 		"NOMAD_IP_ssh_other=192.168.0.100",
@@ -203,6 +204,7 @@ func TestEnvironment_AsList(t *testing.T) {
 		"NOMAD_META_owner=armon",
 		"NOMAD_JOB_NAME=my-job",
 		fmt.Sprintf("NOMAD_ALLOC_ID=%s", a.ID),
+		"NOMAD_ALLOC_INDEX=0",
 	}
 	sort.Strings(act)
 	sort.Strings(exp)

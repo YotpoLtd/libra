@@ -15,6 +15,7 @@ import (
 	"time"
 
 	docker "github.com/fsouza/go-dockerclient"
+	sockaddr "github.com/hashicorp/go-sockaddr"
 	"github.com/hashicorp/nomad/client/allocdir"
 	"github.com/hashicorp/nomad/client/config"
 	"github.com/hashicorp/nomad/client/driver/env"
@@ -41,8 +42,8 @@ func dockerIsRemote(t *testing.T) bool {
 
 // Ports used by tests
 var (
-	docker_reserved = 32768 + int(rand.Int31n(25000))
-	docker_dynamic  = 32768 + int(rand.Int31n(25000))
+	docker_reserved = 2000 + int(rand.Int31n(10000))
+	docker_dynamic  = 2000 + int(rand.Int31n(10000))
 )
 
 // Returns a task with a reserved and dynamic port. The ports are returned
@@ -157,6 +158,9 @@ func newTestDockerClient(t *testing.T) *docker.Client {
 
 // This test should always pass, even if docker daemon is not available
 func TestDockerDriver_Fingerprint(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	ctx := testDockerDriverContexts(t, &structs.Task{Name: "foo", Driver: "docker", Resources: basicResources})
 	//ctx.DriverCtx.config.Options = map[string]string{"docker.cleanup.image": "false"}
 	defer ctx.AllocDir.Destroy()
@@ -177,7 +181,47 @@ func TestDockerDriver_Fingerprint(t *testing.T) {
 	t.Logf("Found docker version %s", node.Attributes["driver.docker.version"])
 }
 
+// TestDockerDriver_Fingerprint_Bridge asserts that if Docker is running we set
+// the bridge network's IP as a node attribute. See #2785
+func TestDockerDriver_Fingerprint_Bridge(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
+	if !testutil.DockerIsConnected(t) {
+		t.Skip("requires Docker")
+	}
+
+	// This seems fragile, so we might need to reconsider this test if it
+	// proves flaky
+	expectedAddr, err := sockaddr.GetInterfaceIP("docker0")
+	if err != nil {
+		t.Fatalf("unable to get ip for docker0: %v", err)
+	}
+	if expectedAddr == "" {
+		t.Fatalf("unable to get ip for docker bridge")
+	}
+
+	conf := testConfig()
+	conf.Node = mock.Node()
+	dd := NewDockerDriver(NewDriverContext("", "", conf, conf.Node, testLogger(), nil))
+	ok, err := dd.Fingerprint(conf, conf.Node)
+	if err != nil {
+		t.Fatalf("error fingerprinting docker: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected Docker to be enabled but false was returned")
+	}
+
+	if found := conf.Node.Attributes["driver.docker.bridge_ip"]; found != expectedAddr {
+		t.Fatalf("expected bridge ip %q but found: %q", expectedAddr, found)
+	}
+	t.Logf("docker bridge ip: %q", conf.Node.Attributes["driver.docker.bridge_ip"])
+}
+
 func TestDockerDriver_StartOpen_Wait(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	if !testutil.DockerIsConnected(t) {
 		t.SkipNow()
 	}
@@ -229,6 +273,9 @@ func TestDockerDriver_StartOpen_Wait(t *testing.T) {
 }
 
 func TestDockerDriver_Start_Wait(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	task := &structs.Task{
 		Name:   "nc-demo",
 		Driver: "docker",
@@ -268,6 +315,9 @@ func TestDockerDriver_Start_Wait(t *testing.T) {
 }
 
 func TestDockerDriver_Start_LoadImage(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	if !testutil.DockerIsConnected(t) {
 		t.SkipNow()
 	}
@@ -334,6 +384,9 @@ func TestDockerDriver_Start_LoadImage(t *testing.T) {
 }
 
 func TestDockerDriver_Start_BadPull_Recoverable(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	if !testutil.DockerIsConnected(t) {
 		t.SkipNow()
 	}
@@ -375,6 +428,9 @@ func TestDockerDriver_Start_BadPull_Recoverable(t *testing.T) {
 }
 
 func TestDockerDriver_Start_Wait_AllocDir(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	// This test requires that the alloc dir be mounted into docker as a volume.
 	// Because this cannot happen when docker is run remotely, e.g. when running
 	// docker in a VM, we skip this when we detect Docker is being run remotely.
@@ -445,6 +501,9 @@ func TestDockerDriver_Start_Wait_AllocDir(t *testing.T) {
 }
 
 func TestDockerDriver_Start_Kill_Wait(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	task := &structs.Task{
 		Name:   "nc-demo",
 		Driver: "docker",
@@ -483,6 +542,9 @@ func TestDockerDriver_Start_Kill_Wait(t *testing.T) {
 }
 
 func TestDockerDriver_StartN(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	if !testutil.DockerIsConnected(t) {
 		t.SkipNow()
 	}
@@ -534,6 +596,9 @@ func TestDockerDriver_StartN(t *testing.T) {
 }
 
 func TestDockerDriver_StartNVersions(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	if !testutil.DockerIsConnected(t) {
 		t.SkipNow()
 	}
@@ -611,6 +676,9 @@ func waitForExist(t *testing.T, client *docker.Client, handle *DockerHandle) {
 }
 
 func TestDockerDriver_NetworkMode_Host(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	expected := "host"
 
 	task := &structs.Task{
@@ -650,6 +718,9 @@ func TestDockerDriver_NetworkMode_Host(t *testing.T) {
 }
 
 func TestDockerDriver_NetworkAliases_Bridge(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	// Because go-dockerclient doesn't provide api for query network aliases, just check that
 	// a container can be created with a 'network_aliases' property
 
@@ -696,6 +767,9 @@ func TestDockerDriver_NetworkAliases_Bridge(t *testing.T) {
 }
 
 func TestDockerDriver_Labels(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	task, _, _ := dockerTask()
 	task.Config["labels"] = []map[string]string{
 		map[string]string{
@@ -724,6 +798,9 @@ func TestDockerDriver_Labels(t *testing.T) {
 }
 
 func TestDockerDriver_ForcePull_IsInvalidConfig(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	task, _, _ := dockerTask()
 	task.Config["force_pull"] = "nothing"
 
@@ -738,6 +815,9 @@ func TestDockerDriver_ForcePull_IsInvalidConfig(t *testing.T) {
 }
 
 func TestDockerDriver_ForcePull(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	task, _, _ := dockerTask()
 	task.Config["force_pull"] = "true"
 
@@ -753,6 +833,9 @@ func TestDockerDriver_ForcePull(t *testing.T) {
 }
 
 func TestDockerDriver_SecurityOpt(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	task, _, _ := dockerTask()
 	task.Config["security_opt"] = []string{"seccomp=unconfined"}
 
@@ -772,6 +855,9 @@ func TestDockerDriver_SecurityOpt(t *testing.T) {
 }
 
 func TestDockerDriver_DNS(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	task, _, _ := dockerTask()
 	task.Config["dns_servers"] = []string{"8.8.8.8", "8.8.4.4"}
 	task.Config["dns_search_domains"] = []string{"example.com", "example.org", "example.net"}
@@ -795,7 +881,32 @@ func TestDockerDriver_DNS(t *testing.T) {
 	}
 }
 
+func TestDockerDriver_MACAddress(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
+	task, _, _ := dockerTask()
+	task.Config["mac_address"] = "00:16:3e:00:00:00"
+
+	client, handle, cleanup := dockerSetup(t, task)
+	defer cleanup()
+
+	waitForExist(t, client, handle.(*DockerHandle))
+
+	container, err := client.InspectContainer(handle.(*DockerHandle).ContainerID())
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	if container.NetworkSettings.MacAddress != task.Config["mac_address"] {
+		t.Errorf("expected mac_address=%q but found %q", task.Config["mac_address"], container.NetworkSettings.MacAddress)
+	}
+}
+
 func TestDockerWorkDir(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	task, _, _ := dockerTask()
 	task.Config["work_dir"] = "/some/path"
 
@@ -822,6 +933,9 @@ func inSlice(needle string, haystack []string) bool {
 }
 
 func TestDockerDriver_PortsNoMap(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	task, res, dyn := dockerTask()
 
 	client, handle, cleanup := dockerSetup(t, task)
@@ -872,6 +986,9 @@ func TestDockerDriver_PortsNoMap(t *testing.T) {
 }
 
 func TestDockerDriver_PortsMapping(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	task, res, dyn := dockerTask()
 	task.Config["port_map"] = []map[string]string{
 		map[string]string{
@@ -917,7 +1034,7 @@ func TestDockerDriver_PortsMapping(t *testing.T) {
 	expectedEnvironment := map[string]string{
 		"NOMAD_PORT_main":      "8080",
 		"NOMAD_PORT_REDIS":     "6379",
-		"NOMAD_HOST_PORT_main": strconv.Itoa(docker_reserved),
+		"NOMAD_HOST_PORT_main": strconv.Itoa(res),
 	}
 
 	sort.Strings(container.Config.Env)
@@ -930,6 +1047,9 @@ func TestDockerDriver_PortsMapping(t *testing.T) {
 }
 
 func TestDockerDriver_User(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	task := &structs.Task{
 		Name:   "redis-demo",
 		User:   "alice",
@@ -979,6 +1099,9 @@ func TestDockerDriver_User(t *testing.T) {
 }
 
 func TestDockerDriver_CleanupContainer(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	task := &structs.Task{
 		Name:   "redis-demo",
 		Driver: "docker",
@@ -1027,6 +1150,9 @@ func TestDockerDriver_CleanupContainer(t *testing.T) {
 }
 
 func TestDockerDriver_Stats(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	task := &structs.Task{
 		Name:   "sleep",
 		Driver: "docker",
@@ -1135,6 +1261,9 @@ func setupDockerVolumes(t *testing.T, cfg *config.Config, hostpath string) (*str
 }
 
 func TestDockerDriver_VolumesDisabled(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	cfg := testConfig()
 	cfg.Options = map[string]string{
 		dockerVolumesConfigOption: "false",
@@ -1205,6 +1334,9 @@ func TestDockerDriver_VolumesDisabled(t *testing.T) {
 }
 
 func TestDockerDriver_VolumesEnabled(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	cfg := testConfig()
 
 	tmpvol, err := ioutil.TempDir("", "nomadtest_docker_volumesenabled")
@@ -1241,6 +1373,9 @@ func TestDockerDriver_VolumesEnabled(t *testing.T) {
 
 // TestDockerDriver_Cleanup ensures Cleanup removes only downloaded images.
 func TestDockerDriver_Cleanup(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	if !testutil.DockerIsConnected(t) {
 		t.SkipNow()
 	}
@@ -1302,6 +1437,9 @@ func copyImage(t *testing.T, taskDir *allocdir.TaskDir, image string) {
 }
 
 func TestDockerDriver_AuthConfiguration(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
 	path := "./test-resources/docker/auth.json"
 	cases := []struct {
 		Repo       string

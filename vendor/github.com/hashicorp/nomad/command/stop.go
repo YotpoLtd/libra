@@ -14,7 +14,7 @@ func (c *StopCommand) Help() string {
 Usage: nomad stop [options] <job>
 
   Stop an existing job. This command is used to signal allocations
-  to shut down for the given job ID. Upon successful deregistraion,
+  to shut down for the given job ID. Upon successful deregistration,
   an interactive monitor session will start to display log lines as
   the job unwinds its allocations and completes shutting down. It
   is safe to exit the monitor early using ctrl+c.
@@ -94,17 +94,8 @@ func (c *StopCommand) Run(args []string) int {
 		return 1
 	}
 	if len(jobs) > 1 && strings.TrimSpace(jobID) != jobs[0].ID {
-		out := make([]string, len(jobs)+1)
-		out[0] = "ID|Type|Priority|Status"
-		for i, job := range jobs {
-			out[i+1] = fmt.Sprintf("%s|%s|%d|%s",
-				job.ID,
-				job.Type,
-				job.Priority,
-				job.Status)
-		}
-		c.Ui.Output(fmt.Sprintf("Prefix matched multiple jobs\n\n%s", formatList(out)))
-		return 0
+		c.Ui.Error(fmt.Sprintf("Prefix matched multiple jobs\n\n%s", createStatusListOutput(jobs)))
+		return 1
 	}
 	// Prefix lookup matched a single job
 	job, _, err := client.Jobs().Info(jobs[0].ID, nil)

@@ -9,11 +9,13 @@ import (
 	"time"
 
 	memdb "github.com/hashicorp/go-memdb"
+	"github.com/hashicorp/nomad/helper"
 	"github.com/hashicorp/nomad/nomad/mock"
 	"github.com/hashicorp/nomad/nomad/state"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/testutil"
 	"github.com/hashicorp/raft"
+	"github.com/kr/pretty"
 )
 
 type MockSink struct {
@@ -69,6 +71,7 @@ func makeLog(buf []byte) *raft.Log {
 }
 
 func TestFSM_UpsertNode(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 	fsm.blockedEvals.SetEnabled(true)
 
@@ -125,6 +128,7 @@ func TestFSM_UpsertNode(t *testing.T) {
 }
 
 func TestFSM_DeregisterNode(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 
 	node := mock.Node()
@@ -166,6 +170,7 @@ func TestFSM_DeregisterNode(t *testing.T) {
 }
 
 func TestFSM_UpdateNodeStatus(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 	fsm.blockedEvals.SetEnabled(true)
 
@@ -225,6 +230,7 @@ func TestFSM_UpdateNodeStatus(t *testing.T) {
 }
 
 func TestFSM_UpdateNodeDrain(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 
 	node := mock.Node()
@@ -267,6 +273,7 @@ func TestFSM_UpdateNodeDrain(t *testing.T) {
 }
 
 func TestFSM_RegisterJob(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 
 	job := mock.PeriodicJob()
@@ -315,6 +322,7 @@ func TestFSM_RegisterJob(t *testing.T) {
 }
 
 func TestFSM_DeregisterJob_Purge(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 
 	job := mock.PeriodicJob()
@@ -371,6 +379,7 @@ func TestFSM_DeregisterJob_Purge(t *testing.T) {
 }
 
 func TestFSM_DeregisterJob_NoPurge(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 
 	job := mock.PeriodicJob()
@@ -430,6 +439,7 @@ func TestFSM_DeregisterJob_NoPurge(t *testing.T) {
 }
 
 func TestFSM_UpdateEval(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 	fsm.evalBroker.SetEnabled(true)
 
@@ -467,6 +477,7 @@ func TestFSM_UpdateEval(t *testing.T) {
 }
 
 func TestFSM_UpdateEval_Blocked(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 	fsm.evalBroker.SetEnabled(true)
 	fsm.blockedEvals.SetEnabled(true)
@@ -515,6 +526,7 @@ func TestFSM_UpdateEval_Blocked(t *testing.T) {
 }
 
 func TestFSM_UpdateEval_Untrack(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 	fsm.evalBroker.SetEnabled(true)
 	fsm.blockedEvals.SetEnabled(true)
@@ -569,6 +581,7 @@ func TestFSM_UpdateEval_Untrack(t *testing.T) {
 }
 
 func TestFSM_UpdateEval_NoUntrack(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 	fsm.evalBroker.SetEnabled(true)
 	fsm.blockedEvals.SetEnabled(true)
@@ -625,6 +638,7 @@ func TestFSM_UpdateEval_NoUntrack(t *testing.T) {
 }
 
 func TestFSM_DeleteEval(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 
 	eval := mock.Eval()
@@ -666,6 +680,7 @@ func TestFSM_DeleteEval(t *testing.T) {
 }
 
 func TestFSM_UpsertAllocs(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 
 	alloc := mock.Alloc()
@@ -723,6 +738,7 @@ func TestFSM_UpsertAllocs(t *testing.T) {
 }
 
 func TestFSM_UpsertAllocs_SharedJob(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 
 	alloc := mock.Alloc()
@@ -795,6 +811,7 @@ func TestFSM_UpsertAllocs_SharedJob(t *testing.T) {
 }
 
 func TestFSM_UpsertAllocs_StrippedResources(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 
 	alloc := mock.Alloc()
@@ -835,6 +852,7 @@ func TestFSM_UpsertAllocs_StrippedResources(t *testing.T) {
 }
 
 func TestFSM_UpdateAllocFromClient_Unblock(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 	fsm.blockedEvals.SetEnabled(true)
 	state := fsm.State()
@@ -919,6 +937,7 @@ func TestFSM_UpdateAllocFromClient_Unblock(t *testing.T) {
 }
 
 func TestFSM_UpdateAllocFromClient(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 	state := fsm.State()
 
@@ -957,6 +976,7 @@ func TestFSM_UpdateAllocFromClient(t *testing.T) {
 }
 
 func TestFSM_UpsertVaultAccessor(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 	fsm.blockedEvals.SetEnabled(true)
 
@@ -1006,6 +1026,7 @@ func TestFSM_UpsertVaultAccessor(t *testing.T) {
 }
 
 func TestFSM_DeregisterVaultAccessor(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 	fsm.blockedEvals.SetEnabled(true)
 
@@ -1047,445 +1068,8 @@ func TestFSM_DeregisterVaultAccessor(t *testing.T) {
 	}
 }
 
-func testSnapshotRestore(t *testing.T, fsm *nomadFSM) *nomadFSM {
-	// Snapshot
-	snap, err := fsm.Snapshot()
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	defer snap.Release()
-
-	// Persist
-	buf := bytes.NewBuffer(nil)
-	sink := &MockSink{buf, false}
-	if err := snap.Persist(sink); err != nil {
-		t.Fatalf("err: %v", err)
-	}
-
-	// Try to restore on a new FSM
-	fsm2 := testFSM(t)
-	snap, err = fsm2.Snapshot()
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	defer snap.Release()
-
-	abandonCh := fsm2.State().AbandonCh()
-
-	// Do a restore
-	if err := fsm2.Restore(sink); err != nil {
-		t.Fatalf("err: %v", err)
-	}
-
-	select {
-	case <-abandonCh:
-	default:
-		t.Fatalf("bad")
-	}
-
-	return fsm2
-}
-
-func TestFSM_SnapshotRestore_Nodes(t *testing.T) {
-	// Add some state
-	fsm := testFSM(t)
-	state := fsm.State()
-	node1 := mock.Node()
-	state.UpsertNode(1000, node1)
-	node2 := mock.Node()
-	state.UpsertNode(1001, node2)
-
-	// Verify the contents
-	fsm2 := testSnapshotRestore(t, fsm)
-	state2 := fsm2.State()
-	ws := memdb.NewWatchSet()
-	out1, _ := state2.NodeByID(ws, node1.ID)
-	out2, _ := state2.NodeByID(ws, node2.ID)
-	if !reflect.DeepEqual(node1, out1) {
-		t.Fatalf("bad: \n%#v\n%#v", out1, node1)
-	}
-	if !reflect.DeepEqual(node2, out2) {
-		t.Fatalf("bad: \n%#v\n%#v", out2, node2)
-	}
-}
-
-func TestFSM_SnapshotRestore_Jobs(t *testing.T) {
-	// Add some state
-	fsm := testFSM(t)
-	state := fsm.State()
-	job1 := mock.Job()
-	state.UpsertJob(1000, job1)
-	job2 := mock.Job()
-	state.UpsertJob(1001, job2)
-
-	// Verify the contents
-	ws := memdb.NewWatchSet()
-	fsm2 := testSnapshotRestore(t, fsm)
-	state2 := fsm2.State()
-	out1, _ := state2.JobByID(ws, job1.ID)
-	out2, _ := state2.JobByID(ws, job2.ID)
-	if !reflect.DeepEqual(job1, out1) {
-		t.Fatalf("bad: \n%#v\n%#v", out1, job1)
-	}
-	if !reflect.DeepEqual(job2, out2) {
-		t.Fatalf("bad: \n%#v\n%#v", out2, job2)
-	}
-}
-
-func TestFSM_SnapshotRestore_Evals(t *testing.T) {
-	// Add some state
-	fsm := testFSM(t)
-	state := fsm.State()
-	eval1 := mock.Eval()
-	state.UpsertEvals(1000, []*structs.Evaluation{eval1})
-	eval2 := mock.Eval()
-	state.UpsertEvals(1001, []*structs.Evaluation{eval2})
-
-	// Verify the contents
-	fsm2 := testSnapshotRestore(t, fsm)
-	state2 := fsm2.State()
-	ws := memdb.NewWatchSet()
-	out1, _ := state2.EvalByID(ws, eval1.ID)
-	out2, _ := state2.EvalByID(ws, eval2.ID)
-	if !reflect.DeepEqual(eval1, out1) {
-		t.Fatalf("bad: \n%#v\n%#v", out1, eval1)
-	}
-	if !reflect.DeepEqual(eval2, out2) {
-		t.Fatalf("bad: \n%#v\n%#v", out2, eval2)
-	}
-}
-
-func TestFSM_SnapshotRestore_Allocs(t *testing.T) {
-	// Add some state
-	fsm := testFSM(t)
-	state := fsm.State()
-	alloc1 := mock.Alloc()
-	alloc2 := mock.Alloc()
-	state.UpsertJobSummary(998, mock.JobSummary(alloc1.JobID))
-	state.UpsertJobSummary(999, mock.JobSummary(alloc2.JobID))
-	state.UpsertAllocs(1000, []*structs.Allocation{alloc1})
-	state.UpsertAllocs(1001, []*structs.Allocation{alloc2})
-
-	// Verify the contents
-	fsm2 := testSnapshotRestore(t, fsm)
-	state2 := fsm2.State()
-	ws := memdb.NewWatchSet()
-	out1, _ := state2.AllocByID(ws, alloc1.ID)
-	out2, _ := state2.AllocByID(ws, alloc2.ID)
-	if !reflect.DeepEqual(alloc1, out1) {
-		t.Fatalf("bad: \n%#v\n%#v", out1, alloc1)
-	}
-	if !reflect.DeepEqual(alloc2, out2) {
-		t.Fatalf("bad: \n%#v\n%#v", out2, alloc2)
-	}
-}
-
-func TestFSM_SnapshotRestore_Allocs_NoSharedResources(t *testing.T) {
-	// Add some state
-	fsm := testFSM(t)
-	state := fsm.State()
-	alloc1 := mock.Alloc()
-	alloc2 := mock.Alloc()
-	alloc1.SharedResources = nil
-	alloc2.SharedResources = nil
-	state.UpsertJobSummary(998, mock.JobSummary(alloc1.JobID))
-	state.UpsertJobSummary(999, mock.JobSummary(alloc2.JobID))
-	state.UpsertAllocs(1000, []*structs.Allocation{alloc1})
-	state.UpsertAllocs(1001, []*structs.Allocation{alloc2})
-
-	// Verify the contents
-	fsm2 := testSnapshotRestore(t, fsm)
-	state2 := fsm2.State()
-	ws := memdb.NewWatchSet()
-	out1, _ := state2.AllocByID(ws, alloc1.ID)
-	out2, _ := state2.AllocByID(ws, alloc2.ID)
-	alloc1.SharedResources = &structs.Resources{DiskMB: 150}
-	alloc2.SharedResources = &structs.Resources{DiskMB: 150}
-
-	if !reflect.DeepEqual(alloc1, out1) {
-		t.Fatalf("bad: \n%#v\n%#v", out1, alloc1)
-	}
-	if !reflect.DeepEqual(alloc2, out2) {
-		t.Fatalf("bad: \n%#v\n%#v", out2, alloc2)
-	}
-}
-
-func TestFSM_SnapshotRestore_Indexes(t *testing.T) {
-	// Add some state
-	fsm := testFSM(t)
-	state := fsm.State()
-	node1 := mock.Node()
-	state.UpsertNode(1000, node1)
-
-	// Verify the contents
-	fsm2 := testSnapshotRestore(t, fsm)
-	state2 := fsm2.State()
-
-	index, err := state2.Index("nodes")
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if index != 1000 {
-		t.Fatalf("bad: %d", index)
-	}
-}
-
-func TestFSM_SnapshotRestore_TimeTable(t *testing.T) {
-	// Add some state
-	fsm := testFSM(t)
-
-	tt := fsm.TimeTable()
-	start := time.Now().UTC()
-	tt.Witness(1000, start)
-	tt.Witness(2000, start.Add(10*time.Minute))
-
-	// Verify the contents
-	fsm2 := testSnapshotRestore(t, fsm)
-
-	tt2 := fsm2.TimeTable()
-	if tt2.NearestTime(1500) != start {
-		t.Fatalf("bad")
-	}
-	if tt2.NearestIndex(start.Add(15*time.Minute)) != 2000 {
-		t.Fatalf("bad")
-	}
-}
-
-func TestFSM_SnapshotRestore_PeriodicLaunches(t *testing.T) {
-	// Add some state
-	fsm := testFSM(t)
-	state := fsm.State()
-	job1 := mock.Job()
-	launch1 := &structs.PeriodicLaunch{ID: job1.ID, Launch: time.Now()}
-	state.UpsertPeriodicLaunch(1000, launch1)
-	job2 := mock.Job()
-	launch2 := &structs.PeriodicLaunch{ID: job2.ID, Launch: time.Now()}
-	state.UpsertPeriodicLaunch(1001, launch2)
-
-	// Verify the contents
-	fsm2 := testSnapshotRestore(t, fsm)
-	state2 := fsm2.State()
-	ws := memdb.NewWatchSet()
-	out1, _ := state2.PeriodicLaunchByID(ws, launch1.ID)
-	out2, _ := state2.PeriodicLaunchByID(ws, launch2.ID)
-	if !reflect.DeepEqual(launch1, out1) {
-		t.Fatalf("bad: \n%#v\n%#v", out1, job1)
-	}
-	if !reflect.DeepEqual(launch2, out2) {
-		t.Fatalf("bad: \n%#v\n%#v", out2, job2)
-	}
-}
-
-func TestFSM_SnapshotRestore_JobSummary(t *testing.T) {
-	// Add some state
-	fsm := testFSM(t)
-	state := fsm.State()
-
-	job1 := mock.Job()
-	state.UpsertJob(1000, job1)
-	ws := memdb.NewWatchSet()
-	js1, _ := state.JobSummaryByID(ws, job1.ID)
-
-	job2 := mock.Job()
-	state.UpsertJob(1001, job2)
-	js2, _ := state.JobSummaryByID(ws, job2.ID)
-
-	// Verify the contents
-	fsm2 := testSnapshotRestore(t, fsm)
-	state2 := fsm2.State()
-	out1, _ := state2.JobSummaryByID(ws, job1.ID)
-	out2, _ := state2.JobSummaryByID(ws, job2.ID)
-	if !reflect.DeepEqual(js1, out1) {
-		t.Fatalf("bad: \n%#v\n%#v", js1, out1)
-	}
-	if !reflect.DeepEqual(js2, out2) {
-		t.Fatalf("bad: \n%#v\n%#v", js2, out2)
-	}
-}
-
-func TestFSM_SnapshotRestore_VaultAccessors(t *testing.T) {
-	// Add some state
-	fsm := testFSM(t)
-	state := fsm.State()
-	a1 := mock.VaultAccessor()
-	a2 := mock.VaultAccessor()
-	state.UpsertVaultAccessor(1000, []*structs.VaultAccessor{a1, a2})
-
-	// Verify the contents
-	fsm2 := testSnapshotRestore(t, fsm)
-	state2 := fsm2.State()
-	ws := memdb.NewWatchSet()
-	out1, _ := state2.VaultAccessor(ws, a1.Accessor)
-	out2, _ := state2.VaultAccessor(ws, a2.Accessor)
-	if !reflect.DeepEqual(a1, out1) {
-		t.Fatalf("bad: \n%#v\n%#v", out1, a1)
-	}
-	if !reflect.DeepEqual(a2, out2) {
-		t.Fatalf("bad: \n%#v\n%#v", out2, a2)
-	}
-}
-
-func TestFSM_SnapshotRestore_JobVersions(t *testing.T) {
-	// Add some state
-	fsm := testFSM(t)
-	state := fsm.State()
-	job1 := mock.Job()
-	state.UpsertJob(1000, job1)
-	job2 := mock.Job()
-	job2.ID = job1.ID
-	state.UpsertJob(1001, job2)
-
-	// Verify the contents
-	ws := memdb.NewWatchSet()
-	fsm2 := testSnapshotRestore(t, fsm)
-	state2 := fsm2.State()
-	out1, _ := state2.JobByIDAndVersion(ws, job1.ID, job1.Version)
-	out2, _ := state2.JobByIDAndVersion(ws, job2.ID, job2.Version)
-	if !reflect.DeepEqual(job1, out1) {
-		t.Fatalf("bad: \n%#v\n%#v", out1, job1)
-	}
-	if !reflect.DeepEqual(job2, out2) {
-		t.Fatalf("bad: \n%#v\n%#v", out2, job2)
-	}
-	if job2.Version != 1 {
-		t.Fatalf("bad: \n%#v\n%#v", 1, job2)
-	}
-}
-
-func TestFSM_SnapshotRestore_Deployments(t *testing.T) {
-	// Add some state
-	fsm := testFSM(t)
-	state := fsm.State()
-	d1 := mock.Deployment()
-	d2 := mock.Deployment()
-	state.UpsertDeployment(1000, d1, false)
-	state.UpsertDeployment(1001, d2, false)
-
-	// Verify the contents
-	fsm2 := testSnapshotRestore(t, fsm)
-	state2 := fsm2.State()
-	ws := memdb.NewWatchSet()
-	out1, _ := state2.DeploymentByID(ws, d1.ID)
-	out2, _ := state2.DeploymentByID(ws, d2.ID)
-	if !reflect.DeepEqual(d1, out1) {
-		t.Fatalf("bad: \n%#v\n%#v", out1, d1)
-	}
-	if !reflect.DeepEqual(d2, out2) {
-		t.Fatalf("bad: \n%#v\n%#v", out2, d2)
-	}
-}
-
-func TestFSM_SnapshotRestore_AddMissingSummary(t *testing.T) {
-	// Add some state
-	fsm := testFSM(t)
-	state := fsm.State()
-
-	// make an allocation
-	alloc := mock.Alloc()
-	state.UpsertJob(1010, alloc.Job)
-	state.UpsertAllocs(1011, []*structs.Allocation{alloc})
-
-	// Delete the summary
-	state.DeleteJobSummary(1040, alloc.Job.ID)
-
-	// Delete the index
-	if err := state.RemoveIndex("job_summary"); err != nil {
-		t.Fatalf("err: %v", err)
-	}
-
-	fsm2 := testSnapshotRestore(t, fsm)
-	state2 := fsm2.State()
-	latestIndex, _ := state.LatestIndex()
-
-	ws := memdb.NewWatchSet()
-	out, _ := state2.JobSummaryByID(ws, alloc.Job.ID)
-	expected := structs.JobSummary{
-		JobID: alloc.Job.ID,
-		Summary: map[string]structs.TaskGroupSummary{
-			"web": structs.TaskGroupSummary{
-				Starting: 1,
-			},
-		},
-		CreateIndex: 1010,
-		ModifyIndex: latestIndex,
-	}
-	if !reflect.DeepEqual(&expected, out) {
-		t.Fatalf("expected: %#v, actual: %#v", &expected, out)
-	}
-}
-
-func TestFSM_ReconcileSummaries(t *testing.T) {
-	// Add some state
-	fsm := testFSM(t)
-	state := fsm.State()
-
-	// Add a node
-	node := mock.Node()
-	state.UpsertNode(800, node)
-
-	// Make a job so that none of the tasks can be placed
-	job1 := mock.Job()
-	job1.TaskGroups[0].Tasks[0].Resources.CPU = 5000
-	state.UpsertJob(1000, job1)
-
-	// make a job which can make partial progress
-	alloc := mock.Alloc()
-	alloc.NodeID = node.ID
-	state.UpsertJob(1010, alloc.Job)
-	state.UpsertAllocs(1011, []*structs.Allocation{alloc})
-
-	// Delete the summaries
-	state.DeleteJobSummary(1030, job1.ID)
-	state.DeleteJobSummary(1040, alloc.Job.ID)
-
-	req := structs.GenericRequest{}
-	buf, err := structs.Encode(structs.ReconcileJobSummariesRequestType, req)
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-
-	resp := fsm.Apply(makeLog(buf))
-	if resp != nil {
-		t.Fatalf("resp: %v", resp)
-	}
-
-	ws := memdb.NewWatchSet()
-	out1, _ := state.JobSummaryByID(ws, job1.ID)
-	expected := structs.JobSummary{
-		JobID: job1.ID,
-		Summary: map[string]structs.TaskGroupSummary{
-			"web": structs.TaskGroupSummary{
-				Queued: 10,
-			},
-		},
-		CreateIndex: 1000,
-		ModifyIndex: out1.ModifyIndex,
-	}
-	if !reflect.DeepEqual(&expected, out1) {
-		t.Fatalf("expected: %#v, actual: %#v", &expected, out1)
-	}
-
-	// This exercises the code path which adds the allocations made by the
-	// planner and the number of unplaced allocations in the reconcile summaries
-	// codepath
-	out2, _ := state.JobSummaryByID(ws, alloc.Job.ID)
-	expected = structs.JobSummary{
-		JobID: alloc.Job.ID,
-		Summary: map[string]structs.TaskGroupSummary{
-			"web": structs.TaskGroupSummary{
-				Queued:   10,
-				Starting: 1,
-			},
-		},
-		CreateIndex: 1010,
-		ModifyIndex: out2.ModifyIndex,
-	}
-	if !reflect.DeepEqual(&expected, out2) {
-		t.Fatalf("expected: %#v, actual: %#v", &expected, out2)
-	}
-}
-
 func TestFSM_ApplyPlanResults(t *testing.T) {
+	t.Parallel()
 	fsm := testFSM(t)
 
 	// Create the request and create a deployment
@@ -1506,7 +1090,7 @@ func TestFSM_ApplyPlanResults(t *testing.T) {
 			Job:   job,
 			Alloc: []*structs.Allocation{alloc},
 		},
-		CreatedDeployment: d,
+		Deployment: d,
 	}
 	buf, err := structs.Encode(structs.ApplyPlanResultsRequestType, req)
 	if err != nil {
@@ -1575,5 +1159,811 @@ func TestFSM_ApplyPlanResults(t *testing.T) {
 	}
 	if out.Job == nil || out.Job.Priority == 123 {
 		t.Fatalf("bad job")
+	}
+}
+
+func TestFSM_DeploymentStatusUpdate(t *testing.T) {
+	t.Parallel()
+	fsm := testFSM(t)
+	fsm.evalBroker.SetEnabled(true)
+	state := fsm.State()
+
+	// Upsert a deployment
+	d := mock.Deployment()
+	if err := state.UpsertDeployment(1, d); err != nil {
+		t.Fatalf("bad: %v", err)
+	}
+
+	// Create a request to update the deployment, create an eval and job
+	e := mock.Eval()
+	j := mock.Job()
+	status, desc := structs.DeploymentStatusFailed, "foo"
+	req := &structs.DeploymentStatusUpdateRequest{
+		DeploymentUpdate: &structs.DeploymentStatusUpdate{
+			DeploymentID:      d.ID,
+			Status:            status,
+			StatusDescription: desc,
+		},
+		Job:  j,
+		Eval: e,
+	}
+	buf, err := structs.Encode(structs.DeploymentStatusUpdateRequestType, req)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	resp := fsm.Apply(makeLog(buf))
+	if resp != nil {
+		t.Fatalf("resp: %v", resp)
+	}
+
+	// Check that the status was updated properly
+	ws := memdb.NewWatchSet()
+	dout, err := state.DeploymentByID(ws, d.ID)
+	if err != nil {
+		t.Fatalf("bad: %v", err)
+	}
+	if dout.Status != status || dout.StatusDescription != desc {
+		t.Fatalf("bad: %#v", dout)
+	}
+
+	// Check that the evaluation was created
+	eout, _ := state.EvalByID(ws, e.ID)
+	if err != nil {
+		t.Fatalf("bad: %v", err)
+	}
+	if eout == nil {
+		t.Fatalf("bad: %#v", eout)
+	}
+
+	// Check that the job was created
+	jout, _ := state.JobByID(ws, j.ID)
+	if err != nil {
+		t.Fatalf("bad: %v", err)
+	}
+	if jout == nil {
+		t.Fatalf("bad: %#v", jout)
+	}
+
+	// Assert the eval was enqueued
+	stats := fsm.evalBroker.Stats()
+	if stats.TotalReady != 1 {
+		t.Fatalf("bad: %#v %#v", stats, e)
+	}
+}
+
+func TestFSM_JobStabilityUpdate(t *testing.T) {
+	t.Parallel()
+	fsm := testFSM(t)
+	fsm.evalBroker.SetEnabled(true)
+	state := fsm.State()
+
+	// Upsert a deployment
+	job := mock.Job()
+	if err := state.UpsertJob(1, job); err != nil {
+		t.Fatalf("bad: %v", err)
+	}
+
+	// Create a request to update the job to stable
+	req := &structs.JobStabilityRequest{
+		JobID:      job.ID,
+		JobVersion: job.Version,
+		Stable:     true,
+	}
+	buf, err := structs.Encode(structs.JobStabilityRequestType, req)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	resp := fsm.Apply(makeLog(buf))
+	if resp != nil {
+		t.Fatalf("resp: %v", resp)
+	}
+
+	// Check that the stability was updated properly
+	ws := memdb.NewWatchSet()
+	jout, _ := state.JobByIDAndVersion(ws, job.ID, job.Version)
+	if err != nil {
+		t.Fatalf("bad: %v", err)
+	}
+	if jout == nil || !jout.Stable {
+		t.Fatalf("bad: %#v", jout)
+	}
+}
+
+func TestFSM_DeploymentPromotion(t *testing.T) {
+	t.Parallel()
+	fsm := testFSM(t)
+	fsm.evalBroker.SetEnabled(true)
+	state := fsm.State()
+
+	// Create a job with two task groups
+	j := mock.Job()
+	tg1 := j.TaskGroups[0]
+	tg2 := tg1.Copy()
+	tg2.Name = "foo"
+	j.TaskGroups = append(j.TaskGroups, tg2)
+	if err := state.UpsertJob(1, j); err != nil {
+		t.Fatalf("bad: %v", err)
+	}
+
+	// Create a deployment
+	d := mock.Deployment()
+	d.JobID = j.ID
+	d.TaskGroups = map[string]*structs.DeploymentState{
+		"web": &structs.DeploymentState{
+			DesiredTotal:    10,
+			DesiredCanaries: 1,
+		},
+		"foo": &structs.DeploymentState{
+			DesiredTotal:    10,
+			DesiredCanaries: 1,
+		},
+	}
+	if err := state.UpsertDeployment(2, d); err != nil {
+		t.Fatalf("bad: %v", err)
+	}
+
+	// Create a set of allocations
+	c1 := mock.Alloc()
+	c1.JobID = j.ID
+	c1.DeploymentID = d.ID
+	d.TaskGroups[c1.TaskGroup].PlacedCanaries = append(d.TaskGroups[c1.TaskGroup].PlacedCanaries, c1.ID)
+	c1.DeploymentStatus = &structs.AllocDeploymentStatus{
+		Healthy: helper.BoolToPtr(true),
+	}
+	c2 := mock.Alloc()
+	c2.JobID = j.ID
+	c2.DeploymentID = d.ID
+	d.TaskGroups[c2.TaskGroup].PlacedCanaries = append(d.TaskGroups[c2.TaskGroup].PlacedCanaries, c2.ID)
+	c2.TaskGroup = tg2.Name
+	c2.DeploymentStatus = &structs.AllocDeploymentStatus{
+		Healthy: helper.BoolToPtr(true),
+	}
+
+	if err := state.UpsertAllocs(3, []*structs.Allocation{c1, c2}); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	// Create an eval
+	e := mock.Eval()
+
+	// Promote the canaries
+	req := &structs.ApplyDeploymentPromoteRequest{
+		DeploymentPromoteRequest: structs.DeploymentPromoteRequest{
+			DeploymentID: d.ID,
+			All:          true,
+		},
+		Eval: e,
+	}
+	buf, err := structs.Encode(structs.DeploymentPromoteRequestType, req)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	resp := fsm.Apply(makeLog(buf))
+	if resp != nil {
+		t.Fatalf("resp: %v", resp)
+	}
+
+	// Check that the status per task group was updated properly
+	ws := memdb.NewWatchSet()
+	dout, err := state.DeploymentByID(ws, d.ID)
+	if err != nil {
+		t.Fatalf("bad: %v", err)
+	}
+	if len(dout.TaskGroups) != 2 {
+		t.Fatalf("bad: %#v", dout.TaskGroups)
+	}
+	for tg, state := range dout.TaskGroups {
+		if !state.Promoted {
+			t.Fatalf("bad: group %q not promoted %#v", tg, state)
+		}
+	}
+
+	// Check that the evaluation was created
+	eout, _ := state.EvalByID(ws, e.ID)
+	if err != nil {
+		t.Fatalf("bad: %v", err)
+	}
+	if eout == nil {
+		t.Fatalf("bad: %#v", eout)
+	}
+
+	// Assert the eval was enqueued
+	stats := fsm.evalBroker.Stats()
+	if stats.TotalReady != 1 {
+		t.Fatalf("bad: %#v %#v", stats, e)
+	}
+}
+
+func TestFSM_DeploymentAllocHealth(t *testing.T) {
+	t.Parallel()
+	fsm := testFSM(t)
+	fsm.evalBroker.SetEnabled(true)
+	state := fsm.State()
+
+	// Insert a deployment
+	d := mock.Deployment()
+	if err := state.UpsertDeployment(1, d); err != nil {
+		t.Fatalf("bad: %v", err)
+	}
+
+	// Insert two allocations
+	a1 := mock.Alloc()
+	a1.DeploymentID = d.ID
+	a2 := mock.Alloc()
+	a2.DeploymentID = d.ID
+	if err := state.UpsertAllocs(2, []*structs.Allocation{a1, a2}); err != nil {
+		t.Fatalf("bad: %v", err)
+	}
+
+	// Create a job to roll back to
+	j := mock.Job()
+
+	// Create an eval that should be upserted
+	e := mock.Eval()
+
+	// Create a status update for the deployment
+	status, desc := structs.DeploymentStatusFailed, "foo"
+	u := &structs.DeploymentStatusUpdate{
+		DeploymentID:      d.ID,
+		Status:            status,
+		StatusDescription: desc,
+	}
+
+	// Set health against the deployment
+	req := &structs.ApplyDeploymentAllocHealthRequest{
+		DeploymentAllocHealthRequest: structs.DeploymentAllocHealthRequest{
+			DeploymentID:           d.ID,
+			HealthyAllocationIDs:   []string{a1.ID},
+			UnhealthyAllocationIDs: []string{a2.ID},
+		},
+		Job:              j,
+		Eval:             e,
+		DeploymentUpdate: u,
+	}
+	buf, err := structs.Encode(structs.DeploymentAllocHealthRequestType, req)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	resp := fsm.Apply(makeLog(buf))
+	if resp != nil {
+		t.Fatalf("resp: %v", resp)
+	}
+
+	// Check that the status was updated properly
+	ws := memdb.NewWatchSet()
+	dout, err := state.DeploymentByID(ws, d.ID)
+	if err != nil {
+		t.Fatalf("bad: %v", err)
+	}
+	if dout.Status != status || dout.StatusDescription != desc {
+		t.Fatalf("bad: %#v", dout)
+	}
+
+	// Check that the evaluation was created
+	eout, _ := state.EvalByID(ws, e.ID)
+	if err != nil {
+		t.Fatalf("bad: %v", err)
+	}
+	if eout == nil {
+		t.Fatalf("bad: %#v", eout)
+	}
+
+	// Check that the job was created
+	jout, _ := state.JobByID(ws, j.ID)
+	if err != nil {
+		t.Fatalf("bad: %v", err)
+	}
+	if jout == nil {
+		t.Fatalf("bad: %#v", jout)
+	}
+
+	// Check the status of the allocs
+	out1, err := state.AllocByID(ws, a1.ID)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	out2, err := state.AllocByID(ws, a2.ID)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	if !out1.DeploymentStatus.IsHealthy() {
+		t.Fatalf("bad: alloc %q not healthy", out1.ID)
+	}
+	if !out2.DeploymentStatus.IsUnhealthy() {
+		t.Fatalf("bad: alloc %q not unhealthy", out2.ID)
+	}
+
+	// Assert the eval was enqueued
+	stats := fsm.evalBroker.Stats()
+	if stats.TotalReady != 1 {
+		t.Fatalf("bad: %#v %#v", stats, e)
+	}
+}
+
+func TestFSM_DeleteDeployment(t *testing.T) {
+	t.Parallel()
+	fsm := testFSM(t)
+	state := fsm.State()
+
+	// Upsert a deployments
+	d := mock.Deployment()
+	if err := state.UpsertDeployment(1, d); err != nil {
+		t.Fatalf("bad: %v", err)
+	}
+
+	req := structs.DeploymentDeleteRequest{
+		Deployments: []string{d.ID},
+	}
+	buf, err := structs.Encode(structs.DeploymentDeleteRequestType, req)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	resp := fsm.Apply(makeLog(buf))
+	if resp != nil {
+		t.Fatalf("resp: %v", resp)
+	}
+
+	// Verify we are NOT registered
+	ws := memdb.NewWatchSet()
+	deployment, err := state.DeploymentByID(ws, d.ID)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if deployment != nil {
+		t.Fatalf("deployment found!")
+	}
+}
+
+func testSnapshotRestore(t *testing.T, fsm *nomadFSM) *nomadFSM {
+	// Snapshot
+	snap, err := fsm.Snapshot()
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	defer snap.Release()
+
+	// Persist
+	buf := bytes.NewBuffer(nil)
+	sink := &MockSink{buf, false}
+	if err := snap.Persist(sink); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	// Try to restore on a new FSM
+	fsm2 := testFSM(t)
+	snap, err = fsm2.Snapshot()
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	defer snap.Release()
+
+	abandonCh := fsm2.State().AbandonCh()
+
+	// Do a restore
+	if err := fsm2.Restore(sink); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	select {
+	case <-abandonCh:
+	default:
+		t.Fatalf("bad")
+	}
+
+	return fsm2
+}
+
+func TestFSM_SnapshotRestore_Nodes(t *testing.T) {
+	t.Parallel()
+	// Add some state
+	fsm := testFSM(t)
+	state := fsm.State()
+	node1 := mock.Node()
+	state.UpsertNode(1000, node1)
+	node2 := mock.Node()
+	state.UpsertNode(1001, node2)
+
+	// Verify the contents
+	fsm2 := testSnapshotRestore(t, fsm)
+	state2 := fsm2.State()
+	ws := memdb.NewWatchSet()
+	out1, _ := state2.NodeByID(ws, node1.ID)
+	out2, _ := state2.NodeByID(ws, node2.ID)
+	if !reflect.DeepEqual(node1, out1) {
+		t.Fatalf("bad: \n%#v\n%#v", out1, node1)
+	}
+	if !reflect.DeepEqual(node2, out2) {
+		t.Fatalf("bad: \n%#v\n%#v", out2, node2)
+	}
+}
+
+func TestFSM_SnapshotRestore_Jobs(t *testing.T) {
+	t.Parallel()
+	// Add some state
+	fsm := testFSM(t)
+	state := fsm.State()
+	job1 := mock.Job()
+	state.UpsertJob(1000, job1)
+	job2 := mock.Job()
+	state.UpsertJob(1001, job2)
+
+	// Verify the contents
+	ws := memdb.NewWatchSet()
+	fsm2 := testSnapshotRestore(t, fsm)
+	state2 := fsm2.State()
+	out1, _ := state2.JobByID(ws, job1.ID)
+	out2, _ := state2.JobByID(ws, job2.ID)
+	if !reflect.DeepEqual(job1, out1) {
+		t.Fatalf("bad: \n%#v\n%#v", out1, job1)
+	}
+	if !reflect.DeepEqual(job2, out2) {
+		t.Fatalf("bad: \n%#v\n%#v", out2, job2)
+	}
+}
+
+func TestFSM_SnapshotRestore_Evals(t *testing.T) {
+	t.Parallel()
+	// Add some state
+	fsm := testFSM(t)
+	state := fsm.State()
+	eval1 := mock.Eval()
+	state.UpsertEvals(1000, []*structs.Evaluation{eval1})
+	eval2 := mock.Eval()
+	state.UpsertEvals(1001, []*structs.Evaluation{eval2})
+
+	// Verify the contents
+	fsm2 := testSnapshotRestore(t, fsm)
+	state2 := fsm2.State()
+	ws := memdb.NewWatchSet()
+	out1, _ := state2.EvalByID(ws, eval1.ID)
+	out2, _ := state2.EvalByID(ws, eval2.ID)
+	if !reflect.DeepEqual(eval1, out1) {
+		t.Fatalf("bad: \n%#v\n%#v", out1, eval1)
+	}
+	if !reflect.DeepEqual(eval2, out2) {
+		t.Fatalf("bad: \n%#v\n%#v", out2, eval2)
+	}
+}
+
+func TestFSM_SnapshotRestore_Allocs(t *testing.T) {
+	t.Parallel()
+	// Add some state
+	fsm := testFSM(t)
+	state := fsm.State()
+	alloc1 := mock.Alloc()
+	alloc2 := mock.Alloc()
+	state.UpsertJobSummary(998, mock.JobSummary(alloc1.JobID))
+	state.UpsertJobSummary(999, mock.JobSummary(alloc2.JobID))
+	state.UpsertAllocs(1000, []*structs.Allocation{alloc1})
+	state.UpsertAllocs(1001, []*structs.Allocation{alloc2})
+
+	// Verify the contents
+	fsm2 := testSnapshotRestore(t, fsm)
+	state2 := fsm2.State()
+	ws := memdb.NewWatchSet()
+	out1, _ := state2.AllocByID(ws, alloc1.ID)
+	out2, _ := state2.AllocByID(ws, alloc2.ID)
+	if !reflect.DeepEqual(alloc1, out1) {
+		t.Fatalf("bad: \n%#v\n%#v", out1, alloc1)
+	}
+	if !reflect.DeepEqual(alloc2, out2) {
+		t.Fatalf("bad: \n%#v\n%#v", out2, alloc2)
+	}
+}
+
+func TestFSM_SnapshotRestore_Allocs_NoSharedResources(t *testing.T) {
+	t.Parallel()
+	// Add some state
+	fsm := testFSM(t)
+	state := fsm.State()
+	alloc1 := mock.Alloc()
+	alloc2 := mock.Alloc()
+	alloc1.SharedResources = nil
+	alloc2.SharedResources = nil
+	state.UpsertJobSummary(998, mock.JobSummary(alloc1.JobID))
+	state.UpsertJobSummary(999, mock.JobSummary(alloc2.JobID))
+	state.UpsertAllocs(1000, []*structs.Allocation{alloc1})
+	state.UpsertAllocs(1001, []*structs.Allocation{alloc2})
+
+	// Verify the contents
+	fsm2 := testSnapshotRestore(t, fsm)
+	state2 := fsm2.State()
+	ws := memdb.NewWatchSet()
+	out1, _ := state2.AllocByID(ws, alloc1.ID)
+	out2, _ := state2.AllocByID(ws, alloc2.ID)
+	alloc1.SharedResources = &structs.Resources{DiskMB: 150}
+	alloc2.SharedResources = &structs.Resources{DiskMB: 150}
+
+	if !reflect.DeepEqual(alloc1, out1) {
+		t.Fatalf("bad: \n%#v\n%#v", out1, alloc1)
+	}
+	if !reflect.DeepEqual(alloc2, out2) {
+		t.Fatalf("bad: \n%#v\n%#v", out2, alloc2)
+	}
+}
+
+func TestFSM_SnapshotRestore_Indexes(t *testing.T) {
+	t.Parallel()
+	// Add some state
+	fsm := testFSM(t)
+	state := fsm.State()
+	node1 := mock.Node()
+	state.UpsertNode(1000, node1)
+
+	// Verify the contents
+	fsm2 := testSnapshotRestore(t, fsm)
+	state2 := fsm2.State()
+
+	index, err := state2.Index("nodes")
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if index != 1000 {
+		t.Fatalf("bad: %d", index)
+	}
+}
+
+func TestFSM_SnapshotRestore_TimeTable(t *testing.T) {
+	t.Parallel()
+	// Add some state
+	fsm := testFSM(t)
+
+	tt := fsm.TimeTable()
+	start := time.Now().UTC()
+	tt.Witness(1000, start)
+	tt.Witness(2000, start.Add(10*time.Minute))
+
+	// Verify the contents
+	fsm2 := testSnapshotRestore(t, fsm)
+
+	tt2 := fsm2.TimeTable()
+	if tt2.NearestTime(1500) != start {
+		t.Fatalf("bad")
+	}
+	if tt2.NearestIndex(start.Add(15*time.Minute)) != 2000 {
+		t.Fatalf("bad")
+	}
+}
+
+func TestFSM_SnapshotRestore_PeriodicLaunches(t *testing.T) {
+	t.Parallel()
+	// Add some state
+	fsm := testFSM(t)
+	state := fsm.State()
+	job1 := mock.Job()
+	launch1 := &structs.PeriodicLaunch{ID: job1.ID, Launch: time.Now()}
+	state.UpsertPeriodicLaunch(1000, launch1)
+	job2 := mock.Job()
+	launch2 := &structs.PeriodicLaunch{ID: job2.ID, Launch: time.Now()}
+	state.UpsertPeriodicLaunch(1001, launch2)
+
+	// Verify the contents
+	fsm2 := testSnapshotRestore(t, fsm)
+	state2 := fsm2.State()
+	ws := memdb.NewWatchSet()
+	out1, _ := state2.PeriodicLaunchByID(ws, launch1.ID)
+	out2, _ := state2.PeriodicLaunchByID(ws, launch2.ID)
+	if !reflect.DeepEqual(launch1, out1) {
+		t.Fatalf("bad: \n%#v\n%#v", out1, job1)
+	}
+	if !reflect.DeepEqual(launch2, out2) {
+		t.Fatalf("bad: \n%#v\n%#v", out2, job2)
+	}
+}
+
+func TestFSM_SnapshotRestore_JobSummary(t *testing.T) {
+	t.Parallel()
+	// Add some state
+	fsm := testFSM(t)
+	state := fsm.State()
+
+	job1 := mock.Job()
+	state.UpsertJob(1000, job1)
+	ws := memdb.NewWatchSet()
+	js1, _ := state.JobSummaryByID(ws, job1.ID)
+
+	job2 := mock.Job()
+	state.UpsertJob(1001, job2)
+	js2, _ := state.JobSummaryByID(ws, job2.ID)
+
+	// Verify the contents
+	fsm2 := testSnapshotRestore(t, fsm)
+	state2 := fsm2.State()
+	out1, _ := state2.JobSummaryByID(ws, job1.ID)
+	out2, _ := state2.JobSummaryByID(ws, job2.ID)
+	if !reflect.DeepEqual(js1, out1) {
+		t.Fatalf("bad: \n%#v\n%#v", js1, out1)
+	}
+	if !reflect.DeepEqual(js2, out2) {
+		t.Fatalf("bad: \n%#v\n%#v", js2, out2)
+	}
+}
+
+func TestFSM_SnapshotRestore_VaultAccessors(t *testing.T) {
+	t.Parallel()
+	// Add some state
+	fsm := testFSM(t)
+	state := fsm.State()
+	a1 := mock.VaultAccessor()
+	a2 := mock.VaultAccessor()
+	state.UpsertVaultAccessor(1000, []*structs.VaultAccessor{a1, a2})
+
+	// Verify the contents
+	fsm2 := testSnapshotRestore(t, fsm)
+	state2 := fsm2.State()
+	ws := memdb.NewWatchSet()
+	out1, _ := state2.VaultAccessor(ws, a1.Accessor)
+	out2, _ := state2.VaultAccessor(ws, a2.Accessor)
+	if !reflect.DeepEqual(a1, out1) {
+		t.Fatalf("bad: \n%#v\n%#v", out1, a1)
+	}
+	if !reflect.DeepEqual(a2, out2) {
+		t.Fatalf("bad: \n%#v\n%#v", out2, a2)
+	}
+}
+
+func TestFSM_SnapshotRestore_JobVersions(t *testing.T) {
+	t.Parallel()
+	// Add some state
+	fsm := testFSM(t)
+	state := fsm.State()
+	job1 := mock.Job()
+	state.UpsertJob(1000, job1)
+	job2 := mock.Job()
+	job2.ID = job1.ID
+	state.UpsertJob(1001, job2)
+
+	// Verify the contents
+	ws := memdb.NewWatchSet()
+	fsm2 := testSnapshotRestore(t, fsm)
+	state2 := fsm2.State()
+	out1, _ := state2.JobByIDAndVersion(ws, job1.ID, job1.Version)
+	out2, _ := state2.JobByIDAndVersion(ws, job2.ID, job2.Version)
+	if !reflect.DeepEqual(job1, out1) {
+		t.Fatalf("bad: \n%#v\n%#v", out1, job1)
+	}
+	if !reflect.DeepEqual(job2, out2) {
+		t.Fatalf("bad: \n%#v\n%#v", out2, job2)
+	}
+	if job2.Version != 1 {
+		t.Fatalf("bad: \n%#v\n%#v", 1, job2)
+	}
+}
+
+func TestFSM_SnapshotRestore_Deployments(t *testing.T) {
+	t.Parallel()
+	// Add some state
+	fsm := testFSM(t)
+	state := fsm.State()
+	d1 := mock.Deployment()
+	d2 := mock.Deployment()
+	state.UpsertDeployment(1000, d1)
+	state.UpsertDeployment(1001, d2)
+
+	// Verify the contents
+	fsm2 := testSnapshotRestore(t, fsm)
+	state2 := fsm2.State()
+	ws := memdb.NewWatchSet()
+	out1, _ := state2.DeploymentByID(ws, d1.ID)
+	out2, _ := state2.DeploymentByID(ws, d2.ID)
+	if !reflect.DeepEqual(d1, out1) {
+		t.Fatalf("bad: \n%#v\n%#v", out1, d1)
+	}
+	if !reflect.DeepEqual(d2, out2) {
+		t.Fatalf("bad: \n%#v\n%#v", out2, d2)
+	}
+}
+
+func TestFSM_SnapshotRestore_AddMissingSummary(t *testing.T) {
+	t.Parallel()
+	// Add some state
+	fsm := testFSM(t)
+	state := fsm.State()
+
+	// make an allocation
+	alloc := mock.Alloc()
+	state.UpsertJob(1010, alloc.Job)
+	state.UpsertAllocs(1011, []*structs.Allocation{alloc})
+
+	// Delete the summary
+	state.DeleteJobSummary(1040, alloc.Job.ID)
+
+	// Delete the index
+	if err := state.RemoveIndex("job_summary"); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	fsm2 := testSnapshotRestore(t, fsm)
+	state2 := fsm2.State()
+	latestIndex, _ := state.LatestIndex()
+
+	ws := memdb.NewWatchSet()
+	out, _ := state2.JobSummaryByID(ws, alloc.Job.ID)
+	expected := structs.JobSummary{
+		JobID: alloc.Job.ID,
+		Summary: map[string]structs.TaskGroupSummary{
+			"web": structs.TaskGroupSummary{
+				Starting: 1,
+			},
+		},
+		CreateIndex: 1010,
+		ModifyIndex: latestIndex,
+	}
+	if !reflect.DeepEqual(&expected, out) {
+		t.Fatalf("expected: %#v, actual: %#v", &expected, out)
+	}
+}
+
+func TestFSM_ReconcileSummaries(t *testing.T) {
+	t.Parallel()
+	// Add some state
+	fsm := testFSM(t)
+	state := fsm.State()
+
+	// Add a node
+	node := mock.Node()
+	state.UpsertNode(800, node)
+
+	// Make a job so that none of the tasks can be placed
+	job1 := mock.Job()
+	job1.TaskGroups[0].Tasks[0].Resources.CPU = 5000
+	state.UpsertJob(1000, job1)
+
+	// make a job which can make partial progress
+	alloc := mock.Alloc()
+	alloc.NodeID = node.ID
+	state.UpsertJob(1010, alloc.Job)
+	state.UpsertAllocs(1011, []*structs.Allocation{alloc})
+
+	// Delete the summaries
+	state.DeleteJobSummary(1030, job1.ID)
+	state.DeleteJobSummary(1040, alloc.Job.ID)
+
+	req := structs.GenericRequest{}
+	buf, err := structs.Encode(structs.ReconcileJobSummariesRequestType, req)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	resp := fsm.Apply(makeLog(buf))
+	if resp != nil {
+		t.Fatalf("resp: %v", resp)
+	}
+
+	ws := memdb.NewWatchSet()
+	out1, _ := state.JobSummaryByID(ws, job1.ID)
+	expected := structs.JobSummary{
+		JobID: job1.ID,
+		Summary: map[string]structs.TaskGroupSummary{
+			"web": structs.TaskGroupSummary{
+				Queued: 10,
+			},
+		},
+		CreateIndex: 1000,
+		ModifyIndex: out1.ModifyIndex,
+	}
+	if !reflect.DeepEqual(&expected, out1) {
+		t.Fatalf("expected: %#v, actual: %#v", &expected, out1)
+	}
+
+	// This exercises the code path which adds the allocations made by the
+	// planner and the number of unplaced allocations in the reconcile summaries
+	// codepath
+	out2, _ := state.JobSummaryByID(ws, alloc.Job.ID)
+	expected = structs.JobSummary{
+		JobID: alloc.Job.ID,
+		Summary: map[string]structs.TaskGroupSummary{
+			"web": structs.TaskGroupSummary{
+				Queued:   9,
+				Starting: 1,
+			},
+		},
+		CreateIndex: 1010,
+		ModifyIndex: out2.ModifyIndex,
+	}
+	if !reflect.DeepEqual(&expected, out2) {
+		t.Fatalf("Diff % #v", pretty.Diff(&expected, out2))
 	}
 }

@@ -156,7 +156,7 @@ type TLSConfig struct {
 // DefaultConfig returns a default configuration for the client
 func DefaultConfig() *Config {
 	config := &Config{
-		Address:    "http://127.0.0.1:8646",
+		Address:    "http://127.0.0.1:4646",
 		HttpClient: cleanhttp.DefaultClient(),
 		TLSConfig:  &TLSConfig{},
 	}

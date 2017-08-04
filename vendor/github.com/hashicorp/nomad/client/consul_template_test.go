@@ -13,6 +13,7 @@ import (
 	ctestutil "github.com/hashicorp/consul/testutil"
 	"github.com/hashicorp/nomad/client/config"
 	"github.com/hashicorp/nomad/client/driver/env"
+	"github.com/hashicorp/nomad/helper"
 	"github.com/hashicorp/nomad/nomad/mock"
 	"github.com/hashicorp/nomad/nomad/structs"
 	sconfig "github.com/hashicorp/nomad/nomad/structs/config"
@@ -135,7 +136,7 @@ func newTestHarness(t *testing.T, templates []*structs.Template, consul, vault b
 	}
 
 	if vault {
-		harness.vault = testutil.NewTestVault(t).Start()
+		harness.vault = testutil.NewTestVault(t)
 		harness.config.VaultConfig = harness.vault.Config
 		harness.vaultToken = harness.vault.RootToken
 	}
@@ -177,6 +178,7 @@ func (h *testHarness) stop() {
 }
 
 func TestTaskTemplateManager_Invalid(t *testing.T) {
+	t.Parallel()
 	hooks := NewMockTaskHooks()
 	var tmpls []*structs.Template
 	region := "global"
@@ -234,6 +236,7 @@ func TestTaskTemplateManager_Invalid(t *testing.T) {
 }
 
 func TestTaskTemplateManager_HostPath(t *testing.T) {
+	t.Parallel()
 	// Make a template that will render immediately and write it to a tmp file
 	f, err := ioutil.TempFile("", "")
 	if err != nil {
@@ -287,6 +290,7 @@ func TestTaskTemplateManager_HostPath(t *testing.T) {
 }
 
 func TestTaskTemplateManager_Unblock_Static(t *testing.T) {
+	t.Parallel()
 	// Make a template that will render immediately
 	content := "hello, world!"
 	file := "my.tmpl"
@@ -320,6 +324,7 @@ func TestTaskTemplateManager_Unblock_Static(t *testing.T) {
 }
 
 func TestTaskTemplateManager_Permissions(t *testing.T) {
+	t.Parallel()
 	// Make a template that will render immediately
 	content := "hello, world!"
 	file := "my.tmpl"
@@ -354,6 +359,7 @@ func TestTaskTemplateManager_Permissions(t *testing.T) {
 }
 
 func TestTaskTemplateManager_Unblock_Static_NomadEnv(t *testing.T) {
+	t.Parallel()
 	// Make a template that will render immediately
 	content := `Hello Nomad Task: {{env "NOMAD_TASK_NAME"}}`
 	expected := fmt.Sprintf("Hello Nomad Task: %s", TestTaskName)
@@ -388,6 +394,7 @@ func TestTaskTemplateManager_Unblock_Static_NomadEnv(t *testing.T) {
 }
 
 func TestTaskTemplateManager_Unblock_Static_AlreadyRendered(t *testing.T) {
+	t.Parallel()
 	// Make a template that will render immediately
 	content := "hello, world!"
 	file := "my.tmpl"
@@ -428,6 +435,7 @@ func TestTaskTemplateManager_Unblock_Static_AlreadyRendered(t *testing.T) {
 }
 
 func TestTaskTemplateManager_Unblock_Consul(t *testing.T) {
+	t.Parallel()
 	// Make a template that will render based on a key in Consul
 	key := "foo"
 	content := "barbaz"
@@ -476,6 +484,7 @@ func TestTaskTemplateManager_Unblock_Consul(t *testing.T) {
 }
 
 func TestTaskTemplateManager_Unblock_Vault(t *testing.T) {
+	t.Parallel()
 	// Make a template that will render based on a key in Vault
 	vaultPath := "secret/password"
 	key := "password"
@@ -526,6 +535,7 @@ func TestTaskTemplateManager_Unblock_Vault(t *testing.T) {
 }
 
 func TestTaskTemplateManager_Unblock_Multi_Template(t *testing.T) {
+	t.Parallel()
 	// Make a template that will render immediately
 	staticContent := "hello, world!"
 	staticFile := "my.tmpl"
@@ -594,6 +604,7 @@ func TestTaskTemplateManager_Unblock_Multi_Template(t *testing.T) {
 }
 
 func TestTaskTemplateManager_Rerender_Noop(t *testing.T) {
+	t.Parallel()
 	// Make a template that will render based on a key in Consul
 	key := "foo"
 	content1 := "bar"
@@ -665,6 +676,7 @@ func TestTaskTemplateManager_Rerender_Noop(t *testing.T) {
 }
 
 func TestTaskTemplateManager_Rerender_Signal(t *testing.T) {
+	t.Parallel()
 	// Make a template that renders based on a key in Consul and sends SIGALRM
 	key1 := "foo"
 	content1_1 := "bar"
@@ -764,6 +776,7 @@ OUTER:
 }
 
 func TestTaskTemplateManager_Rerender_Restart(t *testing.T) {
+	t.Parallel()
 	// Make a template that renders based on a key in Consul and sends restart
 	key1 := "bam"
 	content1_1 := "cat"
@@ -830,6 +843,7 @@ OUTER:
 }
 
 func TestTaskTemplateManager_Interpolate_Destination(t *testing.T) {
+	t.Parallel()
 	// Make a template that will have its destination interpolated
 	content := "hello, world!"
 	file := "${node.unique.id}.tmpl"
@@ -864,6 +878,7 @@ func TestTaskTemplateManager_Interpolate_Destination(t *testing.T) {
 }
 
 func TestTaskTemplateManager_Signal_Error(t *testing.T) {
+	t.Parallel()
 	// Make a template that renders based on a key in Consul and sends SIGALRM
 	key1 := "foo"
 	content1 := "bar"
@@ -915,6 +930,7 @@ func TestTaskTemplateManager_Signal_Error(t *testing.T) {
 // TestTaskTemplateManager_Env asserts templates with the env flag set are read
 // into the task's environment.
 func TestTaskTemplateManager_Env(t *testing.T) {
+	t.Parallel()
 	template := &structs.Template{
 		EmbeddedTmpl: `
 # Comment lines are ok
@@ -957,6 +973,7 @@ ANYTHING_goes=Spaces are=ok!
 // TestTaskTemplateManager_Env_Missing asserts the core env
 // template processing function returns errors when files don't exist
 func TestTaskTemplateManager_Env_Missing(t *testing.T) {
+	t.Parallel()
 	d, err := ioutil.TempDir("", "ct_env_missing")
 	if err != nil {
 		t.Fatalf("err: %v", err)
@@ -991,6 +1008,7 @@ func TestTaskTemplateManager_Env_Missing(t *testing.T) {
 // template processing function returns combined env vars from multiple
 // templates correctly.
 func TestTaskTemplateManager_Env_Multi(t *testing.T) {
+	t.Parallel()
 	d, err := ioutil.TempDir("", "ct_env_missing")
 	if err != nil {
 		t.Fatalf("err: %v", err)
@@ -1031,5 +1049,25 @@ func TestTaskTemplateManager_Env_Multi(t *testing.T) {
 	}
 	if vars["SHARED"] != "yup" {
 		t.Errorf("expected FOO=bar but found %q", vars["yup"])
+	}
+}
+
+// TestTaskTemplateManager_Config_ServerName asserts the tls_server_name
+// setting is propogated to consul-template's configuration. See #2776
+func TestTaskTemplateManager_Config_ServerName(t *testing.T) {
+	t.Parallel()
+	c := config.DefaultConfig()
+	c.VaultConfig = &sconfig.VaultConfig{
+		Enabled:       helper.BoolToPtr(true),
+		Addr:          "https://localhost/",
+		TLSServerName: "notlocalhost",
+	}
+	ctconf, err := runnerConfig(c, "token")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if *ctconf.Vault.SSL.ServerName != c.VaultConfig.TLSServerName {
+		t.Fatalf("expected %q but found %q", c.VaultConfig.TLSServerName, *ctconf.Vault.SSL.ServerName)
 	}
 }

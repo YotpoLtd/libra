@@ -184,13 +184,22 @@ func convertServerConfig(agentConfig *Config, logOutput io.Writer) (*nomad.Confi
 		}
 		conf.EvalGCThreshold = dur
 	}
-
-	if heartbeatGrace := agentConfig.Server.HeartbeatGrace; heartbeatGrace != "" {
-		dur, err := time.ParseDuration(heartbeatGrace)
+	if gcThreshold := agentConfig.Server.DeploymentGCThreshold; gcThreshold != "" {
+		dur, err := time.ParseDuration(gcThreshold)
 		if err != nil {
 			return nil, err
 		}
-		conf.HeartbeatGrace = dur
+		conf.DeploymentGCThreshold = dur
+	}
+
+	if heartbeatGrace := agentConfig.Server.HeartbeatGrace; heartbeatGrace != 0 {
+		conf.HeartbeatGrace = heartbeatGrace
+	}
+	if min := agentConfig.Server.MinHeartbeatTTL; min != 0 {
+		conf.MinHeartbeatTTL = min
+	}
+	if maxHPS := agentConfig.Server.MaxHeartbeatsPerSecond; maxHPS != 0 {
+		conf.MaxHeartbeatsPerSecond = maxHPS
 	}
 
 	if *agentConfig.Consul.AutoAdvertise && agentConfig.Consul.ServerServiceName == "" {
@@ -704,6 +713,8 @@ func (a *Agent) setupConsul(consulConfig *config.ConsulConfig) error {
 
 	// Create Consul Service client for service advertisement and checks.
 	a.consulService = consul.NewServiceClient(client.Agent(), a.consulSupportsTLSSkipVerify, a.logger)
+
+	// Run the Consul service client's sync'ing main loop
 	go a.consulService.Run()
 	return nil
 }
