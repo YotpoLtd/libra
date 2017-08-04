@@ -48,13 +48,12 @@ func GrafanaHandler(w rest.ResponseWriter, r *rest.Request) {
 	defer r.Body.Close()
 
 	var mb GrafanaMessageBody
-	log.Infof("MESSAGE BODY: %s", t.Message)
 	if err := json.Unmarshal([]byte(t.Message), &mb); err != nil {
 		log.Errorf("Problem parsing Grafana webhook json %s: %s", t.Message, err)
 		rest.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	log.Infof("MESSAGE BODY JOB: %s", mb.Job)
+	log.Infof("Received Grafana webhook: %v", t.Message)
 	config, err := config.NewConfig(os.Getenv("LIBRA_CONFIG_DIR"))
 	if err != nil {
 		log.Errorf("Failed to read or parse config file: %s", err)
