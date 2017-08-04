@@ -69,6 +69,10 @@ func GrafanaHandler(w rest.ResponseWriter, r *rest.Request) {
 
 	var amount int
 	// TODO: Right now this only grabs the first match. Really, we should take all of them and average them together
+	if len(t.EvalMatches) == 0 {
+		log.Infof("Alert %s has been cleared. Doing nothing...", t.Title)
+		return
+	}
 	if t.EvalMatches[0].Value < mb.MinThreshold {
 		amount = -mb.MinActionCount
 	} else if t.EvalMatches[0].Value > mb.MaxThreshold {
