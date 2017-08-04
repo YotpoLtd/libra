@@ -33,8 +33,8 @@ type GrafanaMessageBody struct {
 	MinThreshold   float64 `json:"min_threshold"`
 	MaxAction      string  `json:"max_action"`
 	MinAction      string  `json:"min_action"`
-	MaxActionCount int     `json:"min_action_count"`
-	MinActionCount int     `json:"max_action_count"`
+	MaxActionCount int     `json:"max_action_count"`
+	MinActionCount int     `json:"min_action_count"`
 }
 
 func GrafanaHandler(w rest.ResponseWriter, r *rest.Request) {
