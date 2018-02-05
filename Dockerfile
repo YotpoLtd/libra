@@ -24,10 +24,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /go/bin/libra github.com/underarmour/li
 
 # The 'runtime' container only contains ssl cert chain, and is otherwise an empty base image.
 # If you find this too bare, you can instead switch to using a normal base image.
-FROM scratch
+FROM alpine
 
-# Add ssl certs
-ADD ./build/ca-certificates.crt /etc/ssl/certs/
+RUN apk --no-cache add ca-certificates
 
 # Add binary
 COPY --from=builder /go/bin/libra /bin/libra
