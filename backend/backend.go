@@ -71,6 +71,38 @@ func InitializeBackends(backends map[string]structs.Backend) (ConfiguredBackends
 
 			configuredBackends[name] = connection
 
+		case "influxdb":
+			c, err := config.NewConfig(os.Getenv("LIBRA_CONFIG_DIR"))
+			if err != nil {
+				log.Errorf("Failed to read or parse config file: %s", err)
+				return nil, err
+			}
+
+			conf := c.Backends[name]
+
+			username := conf.Password
+			if username == "" {
+				username = os.Getenv("INFLUX_USERNAME")
+			}
+
+			password := conf.Password
+			if password == "" {
+				password = os.Getenv("INFLUX_PASSWORD")
+			}
+			connection, err := NewInfluxDbBackend(name, InfluxDbConfig{
+				Kind:     conf.Kind,
+				Name:     conf.Name,
+				Addr:     conf.Addr,
+				Timeout:  conf.Timeout,
+				Username: username,
+				Password: password,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("Bad configuration for %s: %s", name, err)
+			}
+
+			configuredBackends[name] = connection
+
 		default:
 			log.Fatalf("unknown backend type '%s' for backend %s", backendType, name)
 			return nil, fmt.Errorf("unknown backend %s", backendType)

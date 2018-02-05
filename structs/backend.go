@@ -15,4 +15,7 @@ type Backend struct {
 	Host     string `mapstructure:"host"`
 	Username string `mapstructure:"username"`
 	Password string `mapstructure:"password"`
+	// Influx specific
+	Addr    string `mapstructure:"addr"`
+	Timeout string `mapstructure:"timeout"`
 }
