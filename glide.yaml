@@ -18,6 +18,7 @@ import:
   subpackages:
   - api
 - package: github.com/mitchellh/cli
+- package: github.com/influxdata/influxdb/client/v2
 - package: github.com/mitchellh/mapstructure
 - package: github.com/sirupsen/logrus
   version: ~1.0.0
