@@ -135,8 +135,8 @@ func (b *InfluxDbBackend) GetValue(rule structs.Rule) (float64, error) {
 		return 0.0, err
 	}
 
-	if len(res) == 0 {
-		return 0.0, fmt.Errorf("no datapoints found for metric")
+	if len(res[0].Series) == 0 {
+		return 0.0, fmt.Errorf("no datapoints found for [%s]", q)
 	}
 
 	fmt.Println(res)
