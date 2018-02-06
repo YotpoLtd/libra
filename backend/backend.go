@@ -6,8 +6,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/underarmour/libra/config"
-	"github.com/underarmour/libra/structs"
+	"github.com/YotpoLtd/libra/config"
+	"github.com/YotpoLtd/libra/structs"
 )
 
 // ConfiguredBackends struct

@@ -10,7 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatch"
 	log "github.com/sirupsen/logrus"
-	"github.com/underarmour/libra/structs"
+	"github.com/YotpoLtd/libra/structs"
 )
 
 // CloudWatchConfig is the configuration for a CloudWatch backend

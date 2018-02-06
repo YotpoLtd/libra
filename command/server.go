@@ -15,11 +15,11 @@ import (
 	"github.com/ant0ine/go-json-rest/rest"
 	"github.com/mitchellh/cli"
 	"github.com/sirupsen/logrus"
-	"github.com/underarmour/libra/api"
-	"github.com/underarmour/libra/backend"
-	"github.com/underarmour/libra/config"
-	"github.com/underarmour/libra/nomad"
-	"github.com/underarmour/libra/structs"
+	"github.com/YotpoLtd/libra/api"
+	"github.com/YotpoLtd/libra/backend"
+	"github.com/YotpoLtd/libra/config"
+	"github.com/YotpoLtd/libra/nomad"
+	"github.com/YotpoLtd/libra/structs"
 	"gopkg.in/robfig/cron.v2"
 )
 

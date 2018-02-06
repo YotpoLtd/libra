@@ -5,7 +5,7 @@ import (
 	influx "github.com/influxdata/influxdb/client/v2"
 	//log "github.com/sirupsen/logrus"
 	"encoding/json"
-	"github.com/underarmour/libra/structs"
+	"github.com/YotpoLtd/libra/structs"
 	"time"
 )
 
