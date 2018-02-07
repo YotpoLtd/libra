@@ -65,9 +65,6 @@ type vaultClient struct {
 	// running indicates if the renewal loop is active or not
 	running bool
 
-	// tokenData is the data of the passed VaultClient token
-	token *tokenData
-
 	// client is the API client to interact with vault
 	client *vaultapi.Client
 
@@ -86,17 +83,6 @@ type vaultClient struct {
 
 	lock   sync.RWMutex
 	logger *log.Logger
-}
-
-// tokenData holds the relevant information about the Vault token passed to the
-// client.
-type tokenData struct {
-	CreationTTL int      `mapstructure:"creation_ttl"`
-	TTL         int      `mapstructure:"ttl"`
-	Renewable   bool     `mapstructure:"renewable"`
-	Policies    []string `mapstructure:"policies"`
-	Role        string   `mapstructure:"role"`
-	Root        bool
 }
 
 // vaultClientRenewalRequest is a request object for renewal of both tokens and
@@ -442,6 +428,7 @@ func (c *vaultClient) renew(req *vaultClientRenewalRequest) error {
 	fatal := false
 	if renewalErr != nil &&
 		(strings.Contains(renewalErr.Error(), "lease not found or lease is not renewable") ||
+			strings.Contains(renewalErr.Error(), "lease is not renewable") ||
 			strings.Contains(renewalErr.Error(), "token not found") ||
 			strings.Contains(renewalErr.Error(), "permission denied")) {
 		fatal = true

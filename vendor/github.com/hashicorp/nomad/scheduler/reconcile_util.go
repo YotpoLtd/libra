@@ -8,7 +8,7 @@ import (
 	"github.com/hashicorp/nomad/nomad/structs"
 )
 
-// placementResult is an allocation that must be placed. It potentionally has a
+// placementResult is an allocation that must be placed. It potentially has a
 // previous allocation attached to it that should be stopped only if the
 // paired placement is complete. This gives an atomic place/stop behavior to
 // prevent an impossible resource ask as part of a rolling update to wipe the
@@ -89,10 +89,8 @@ func newAllocMatrix(job *structs.Job, allocs []*structs.Allocation) allocMatrix 
 
 	if job != nil {
 		for _, tg := range job.TaskGroups {
-			s, ok := m[tg.Name]
-			if !ok {
-				s = make(map[string]*structs.Allocation)
-				m[tg.Name] = s
+			if _, ok := m[tg.Name]; !ok {
+				m[tg.Name] = make(map[string]*structs.Allocation)
 			}
 		}
 	}
@@ -102,15 +100,6 @@ func newAllocMatrix(job *structs.Job, allocs []*structs.Allocation) allocMatrix 
 // allocSet is a set of allocations with a series of helper functions defined
 // that help reconcile state.
 type allocSet map[string]*structs.Allocation
-
-// newAllocSet creates an allocation set given a set of allocations
-func newAllocSet(allocs []*structs.Allocation) allocSet {
-	s := make(map[string]*structs.Allocation, len(allocs))
-	for _, a := range allocs {
-		s[a.ID] = a
-	}
-	return s
-}
 
 // GoString provides a human readable view of the set
 func (a allocSet) GoString() string {
@@ -192,7 +181,7 @@ func (a allocSet) fromKeys(keys ...[]string) allocSet {
 	return from
 }
 
-// fitlerByTainted takes a set of tainted nodes and filters the allocation set
+// filterByTainted takes a set of tainted nodes and filters the allocation set
 // into three groups:
 // 1. Those that exist on untainted nodes
 // 2. Those exist on nodes that are draining
@@ -264,7 +253,7 @@ func newAllocNameIndex(job, taskGroup string, count int, in allocSet) *allocName
 
 // bitmapFrom creates a bitmap from the given allocation set and a minimum size
 // maybe given. The size of the bitmap is as the larger of the passed minimum
-// and t the maximum alloc index of the passed input (byte alligned).
+// and the maximum alloc index of the passed input (byte aligned).
 func bitmapFrom(input allocSet, minSize uint) structs.Bitmap {
 	var max uint
 	for _, a := range input {
@@ -276,9 +265,16 @@ func bitmapFrom(input allocSet, minSize uint) structs.Bitmap {
 	if l := uint(len(input)); minSize < l {
 		minSize = l
 	}
+
 	if max < minSize {
 		max = minSize
+	} else if max%8 == 0 {
+		// This may be possible if the job was scaled down. We want to make sure
+		// that the max index is not byte-aligned otherwise we will overflow
+		// the bitmap.
+		max++
 	}
+
 	if max == 0 {
 		max = 8
 	}
@@ -300,7 +296,7 @@ func bitmapFrom(input allocSet, minSize uint) structs.Bitmap {
 	return bitmap
 }
 
-// RemoveHighest removes and returns the hightest n used names. The returned set
+// RemoveHighest removes and returns the highest n used names. The returned set
 // can be less than n if there aren't n names set in the index
 func (a *allocNameIndex) Highest(n uint) map[string]struct{} {
 	h := make(map[string]struct{}, n)
@@ -376,7 +372,7 @@ func (a *allocNameIndex) NextCanaries(n uint, existing, destructive allocSet) []
 		}
 	}
 
-	// We have exhausted the prefered and free set, now just pick overlapping
+	// We have exhausted the preferred and free set, now just pick overlapping
 	// indexes
 	var i uint
 	for i = 0; i < remainder; i++ {

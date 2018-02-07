@@ -1,6 +1,7 @@
 package nomad
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -17,16 +18,19 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hashicorp/consul/agent/consul/autopilot"
 	consulapi "github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/lib"
-	"github.com/hashicorp/go-multierror"
+	multierror "github.com/hashicorp/go-multierror"
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/hashicorp/nomad/command/agent/consul"
 	"github.com/hashicorp/nomad/helper/tlsutil"
 	"github.com/hashicorp/nomad/nomad/deploymentwatcher"
 	"github.com/hashicorp/nomad/nomad/state"
 	"github.com/hashicorp/nomad/nomad/structs"
+	"github.com/hashicorp/nomad/nomad/structs/config"
 	"github.com/hashicorp/raft"
-	"github.com/hashicorp/raft-boltdb"
+	raftboltdb "github.com/hashicorp/raft-boltdb"
 	"github.com/hashicorp/serf/serf"
 )
 
@@ -72,12 +76,17 @@ const (
 	// defaultConsulDiscoveryIntervalRetry is how often to poll Consul for
 	// new servers if there is no leader and the last Consul query failed.
 	defaultConsulDiscoveryIntervalRetry time.Duration = 9 * time.Second
+
+	// aclCacheSize is the number of ACL objects to keep cached. ACLs have a parsing and
+	// construction cost, so we keep the hot objects cached to reduce the ACL token resolution time.
+	aclCacheSize = 512
 )
 
 // Server is Nomad server which manages the job queues,
 // schedulers, and notification bus for agents.
 type Server struct {
 	config *Config
+
 	logger *log.Logger
 
 	// Connection pool to other Nomad servers
@@ -95,16 +104,22 @@ type Server struct {
 	raftInmem     *raft.InmemStore
 	raftTransport *raft.NetworkTransport
 
+	// autopilot is the Autopilot instance for this server.
+	autopilot *autopilot.Autopilot
+
 	// fsm is the state machine used with Raft
 	fsm *nomadFSM
 
 	// rpcListener is used to listen for incoming connections
-	rpcListener  net.Listener
+	rpcListener net.Listener
+	listenerCh  chan struct{}
+
 	rpcServer    *rpc.Server
 	rpcAdvertise net.Addr
 
 	// rpcTLS is the TLS config for incoming TLS requests
-	rpcTLS *tls.Config
+	rpcTLS    *tls.Config
+	rpcCancel context.CancelFunc
 
 	// peers is used to track the known Nomad servers. This is
 	// used for region forwarding and clustering.
@@ -130,7 +145,7 @@ type Server struct {
 	blockedEvals *BlockedEvals
 
 	// deploymentWatcher is used to watch deployments and their allocations and
-	// make the required calls to continue to transistion the deployment.
+	// make the required calls to continue to transition the deployment.
 	deploymentWatcher *deploymentwatcher.Watcher
 
 	// evalBroker is used to manage the in-progress evaluations
@@ -158,6 +173,21 @@ type Server struct {
 	// Worker used for processing
 	workers []*Worker
 
+	// aclCache is used to maintain the parsed ACL objects
+	aclCache *lru.TwoQueueCache
+
+	// leaderAcl is the management ACL token that is valid when resolved by the
+	// current leader.
+	leaderAcl     string
+	leaderAclLock sync.Mutex
+
+	// statsFetcher is used by autopilot to check the status of the other
+	// Nomad router.
+	statsFetcher *StatsFetcher
+
+	// EnterpriseState is used to fill in state for Pro/Ent builds
+	EnterpriseState
+
 	left         bool
 	shutdown     bool
 	shutdownCh   chan struct{}
@@ -174,9 +204,12 @@ type endpoints struct {
 	Alloc      *Alloc
 	Deployment *Deployment
 	Region     *Region
+	Search     *Search
 	Periodic   *Periodic
 	System     *System
 	Operator   *Operator
+	ACL        *ACL
+	Enterprise *EnterpriseEndpoints
 }
 
 // NewServer is used to construct a new Nomad server from the
@@ -207,21 +240,16 @@ func NewServer(config *Config, consulCatalog consul.CatalogAPI, logger *log.Logg
 	}
 
 	// Configure TLS
-	var tlsWrap tlsutil.RegionWrapper
-	var incomingTLS *tls.Config
-	if config.TLSConfig.EnableRPC {
-		tlsConf := config.tlsConfig()
-		tw, err := tlsConf.OutgoingTLSWrapper()
-		if err != nil {
-			return nil, err
-		}
-		tlsWrap = tw
+	tlsConf := config.tlsConfig()
+	incomingTLS, tlsWrap, err := getTLSConf(config.TLSConfig.EnableRPC, tlsConf)
+	if err != nil {
+		return nil, err
+	}
 
-		itls, err := tlsConf.IncomingTLSConfig()
-		if err != nil {
-			return nil, err
-		}
-		incomingTLS = itls
+	// Create the ACL object cache
+	aclCache, err := lru.New2Q(aclCacheSize)
+	if err != nil {
+		return nil, err
 	}
 
 	// Create the server
@@ -239,11 +267,15 @@ func NewServer(config *Config, consulCatalog consul.CatalogAPI, logger *log.Logg
 		blockedEvals:  blockedEvals,
 		planQueue:     planQueue,
 		rpcTLS:        incomingTLS,
+		aclCache:      aclCache,
 		shutdownCh:    make(chan struct{}),
 	}
 
 	// Create the periodic dispatcher for launching periodic jobs.
 	s.periodicDispatcher = NewPeriodicDispatch(s.logger, s)
+
+	// Initialize the stats fetcher that autopilot will use.
+	s.statsFetcher = NewStatsFetcher(logger, s.connPool, s.config.Region)
 
 	// Setup Vault
 	if err := s.setupVaultClient(); err != nil {
@@ -291,14 +323,19 @@ func NewServer(config *Config, consulCatalog consul.CatalogAPI, logger *log.Logg
 		return nil, fmt.Errorf("failed to create deployment watcher: %v", err)
 	}
 
+	// Setup the enterprise state
+	if err := s.setupEnterprise(config); err != nil {
+		return nil, err
+	}
+
 	// Monitor leadership changes
 	go s.monitorLeadership()
 
 	// Start ingesting events for Serf
 	go s.serfEventHandler()
 
-	// Start the RPC listeners
-	go s.listen()
+	// start the RPC listener for the server
+	s.startRPCListener()
 
 	// Emit metrics for the eval broker
 	go evalBroker.EmitStats(time.Second, s.shutdownCh)
@@ -315,8 +352,103 @@ func NewServer(config *Config, consulCatalog consul.CatalogAPI, logger *log.Logg
 	// Emit metrics
 	go s.heartbeatStats()
 
+	// Start enterprise background workers
+	s.startEnterpriseBackground()
+
 	// Done
 	return s, nil
+}
+
+// startRPCListener starts the server's  the RPC listener
+func (s *Server) startRPCListener() {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.rpcCancel = cancel
+	go func() {
+		defer close(s.listenerCh)
+		s.listen(ctx)
+	}()
+}
+
+// createRPCListener creates the server's RPC listener
+func (s *Server) createRPCListener() (*net.TCPListener, error) {
+	s.listenerCh = make(chan struct{})
+	listener, err := net.ListenTCP("tcp", s.config.RPCAddr)
+	if err != nil {
+		s.logger.Printf("[ERR] nomad: error when initializing TLS listener %s", err)
+		return listener, err
+	}
+
+	s.rpcListener = listener
+	return listener, nil
+}
+
+// getTLSConf gets the server's TLS configuration based on the config supplied
+// by the operator
+func getTLSConf(enableRPC bool, tlsConf *tlsutil.Config) (*tls.Config, tlsutil.RegionWrapper, error) {
+	var tlsWrap tlsutil.RegionWrapper
+	var incomingTLS *tls.Config
+	if enableRPC {
+		tw, err := tlsConf.OutgoingTLSWrapper()
+		if err != nil {
+			return nil, nil, err
+		}
+		tlsWrap = tw
+
+		itls, err := tlsConf.IncomingTLSConfig()
+		if err != nil {
+			return nil, nil, err
+		}
+		incomingTLS = itls
+	}
+	return incomingTLS, tlsWrap, nil
+}
+
+// reloadTLSConnections updates a server's TLS configuration and reloads RPC
+// connections.
+func (s *Server) reloadTLSConnections(newTLSConfig *config.TLSConfig) error {
+	s.logger.Printf("[INFO] nomad: reloading server connections due to configuration changes")
+
+	tlsConf := tlsutil.NewTLSConfiguration(newTLSConfig)
+	incomingTLS, tlsWrap, err := getTLSConf(newTLSConfig.EnableRPC, tlsConf)
+	if err != nil {
+		s.logger.Printf("[ERR] nomad: unable to reset TLS context %s", err)
+		return err
+	}
+
+	if s.rpcCancel == nil {
+		err = fmt.Errorf("No existing RPC server to reset.")
+		s.logger.Printf("[ERR] nomad: %s", err)
+		return err
+	}
+
+	s.rpcCancel()
+
+	// Keeping configuration in sync is important for other places that require
+	// access to config information, such as rpc.go, where we decide on what kind
+	// of network connections to accept depending on the server configuration
+	s.config.TLSConfig = newTLSConfig
+
+	s.rpcTLS = incomingTLS
+	s.connPool.ReloadTLS(tlsWrap)
+
+	// reinitialize our rpc listener
+	s.rpcListener.Close()
+	<-s.listenerCh
+	s.startRPCListener()
+
+	listener, err := s.createRPCListener()
+	if err != nil {
+		listener.Close()
+		return err
+	}
+
+	// Close and reload existing Raft connections
+	wrapper := tlsutil.RegionSpecificWrapper(s.config.Region, tlsWrap)
+	s.raftLayer.ReloadTLS(wrapper)
+	s.raftTransport.CloseStreams()
+
+	s.logger.Printf("[DEBUG] nomad: finished reloading server connections")
+	return nil
 }
 
 // Shutdown is used to shutdown the server
@@ -391,8 +523,6 @@ func (s *Server) Leave() error {
 		return err
 	}
 
-	// TODO (alexdadgar) - This will need to be updated once we support node
-	// IDs.
 	addr := s.raftTransport.LocalAddr()
 
 	// If we are the current leader, and we have any other peers (cluster has multiple
@@ -401,9 +531,21 @@ func (s *Server) Leave() error {
 	// for some sane period of time.
 	isLeader := s.IsLeader()
 	if isLeader && numPeers > 1 {
-		future := s.raft.RemovePeer(addr)
-		if err := future.Error(); err != nil {
-			s.logger.Printf("[ERR] nomad: failed to remove ourself as raft peer: %v", err)
+		minRaftProtocol, err := s.autopilot.MinRaftProtocol()
+		if err != nil {
+			return err
+		}
+
+		if minRaftProtocol >= 2 && s.config.RaftConfig.ProtocolVersion >= 3 {
+			future := s.raft.RemoveServer(raft.ServerID(s.config.NodeID), 0, 0)
+			if err := future.Error(); err != nil {
+				s.logger.Printf("[ERR] nomad: failed to remove ourself as raft peer: %v", err)
+			}
+		} else {
+			future := s.raft.RemovePeer(addr)
+			if err := future.Error(); err != nil {
+				s.logger.Printf("[ERR] nomad: failed to remove ourself as raft peer: %v", err)
+			}
 		}
 	}
 
@@ -463,9 +605,10 @@ func (s *Server) Leave() error {
 	return nil
 }
 
-// Reload handles a config reload. Not all config fields can handle a reload.
-func (s *Server) Reload(config *Config) error {
-	if config == nil {
+// Reload handles a config reload specific to server-only configuration. Not
+// all config fields can handle a reload.
+func (s *Server) Reload(newConfig *Config) error {
+	if newConfig == nil {
 		return fmt.Errorf("Reload given a nil config")
 	}
 
@@ -473,7 +616,14 @@ func (s *Server) Reload(config *Config) error {
 
 	// Handle the Vault reload. Vault should never be nil but just guard.
 	if s.vault != nil {
-		if err := s.vault.SetConfig(config.VaultConfig); err != nil {
+		if err := s.vault.SetConfig(newConfig.VaultConfig); err != nil {
+			multierror.Append(&mErr, err)
+		}
+	}
+
+	if !newConfig.TLSConfig.Equals(s.config.TLSConfig) {
+		if err := s.reloadTLSConnections(newConfig.TLSConfig); err != nil {
+			s.logger.Printf("[ERR] nomad: error reloading server TLS configuration: %s", err)
 			multierror.Append(&mErr, err)
 		}
 	}
@@ -678,23 +828,15 @@ func (s *Server) setupConsulSyncer() error {
 // shim that provides the appropriate methods.
 func (s *Server) setupDeploymentWatcher() error {
 
-	// Create the shims
-	stateShim := &deploymentWatcherStateShim{
-		region:         s.Region(),
-		evaluations:    s.endpoints.Job.Evaluations,
-		allocations:    s.endpoints.Deployment.Allocations,
-		list:           s.endpoints.Deployment.List,
-		getDeployment:  s.endpoints.Deployment.GetDeployment,
-		getJobVersions: s.endpoints.Job.GetJobVersions,
-		getJob:         s.endpoints.Job.GetJob,
-	}
+	// Create the raft shim type to restrict the set of raft methods that can be
+	// made
 	raftShim := &deploymentWatcherRaftShim{
 		apply: s.raftApply,
 	}
 
 	// Create the deployment watcher
 	s.deploymentWatcher = deploymentwatcher.NewDeploymentsWatcher(
-		s.logger, stateShim, raftShim,
+		s.logger, raftShim,
 		deploymentwatcher.LimitStateQueriesPerSecond,
 		deploymentwatcher.CrossDeploymentEvalBatchDuration)
 
@@ -714,6 +856,7 @@ func (s *Server) setupVaultClient() error {
 // setupRPC is used to setup the RPC listener
 func (s *Server) setupRPC(tlsWrap tlsutil.RegionWrapper) error {
 	// Create endpoints
+	s.endpoints.ACL = &ACL{s}
 	s.endpoints.Alloc = &Alloc{s}
 	s.endpoints.Eval = &Eval{s}
 	s.endpoints.Job = &Job{s}
@@ -725,8 +868,11 @@ func (s *Server) setupRPC(tlsWrap tlsutil.RegionWrapper) error {
 	s.endpoints.Region = &Region{s}
 	s.endpoints.Status = &Status{s}
 	s.endpoints.System = &System{s}
+	s.endpoints.Search = &Search{s}
+	s.endpoints.Enterprise = NewEnterpriseEndpoints(s)
 
 	// Register the handlers
+	s.rpcServer.Register(s.endpoints.ACL)
 	s.rpcServer.Register(s.endpoints.Alloc)
 	s.rpcServer.Register(s.endpoints.Eval)
 	s.rpcServer.Register(s.endpoints.Job)
@@ -738,12 +884,16 @@ func (s *Server) setupRPC(tlsWrap tlsutil.RegionWrapper) error {
 	s.rpcServer.Register(s.endpoints.Region)
 	s.rpcServer.Register(s.endpoints.Status)
 	s.rpcServer.Register(s.endpoints.System)
+	s.rpcServer.Register(s.endpoints.Search)
+	s.endpoints.Enterprise.Register(s)
 
-	list, err := net.ListenTCP("tcp", s.config.RPCAddr)
+	listener, err := s.createRPCListener()
 	if err != nil {
+		listener.Close()
 		return err
 	}
-	s.rpcListener = list
+
+	s.logger.Printf("[INFO] nomad: RPC listening on %q", s.rpcListener.Addr().String())
 
 	if s.config.RPCAdvertise != nil {
 		s.rpcAdvertise = s.config.RPCAdvertise
@@ -754,11 +904,11 @@ func (s *Server) setupRPC(tlsWrap tlsutil.RegionWrapper) error {
 	// Verify that we have a usable advertise address
 	addr, ok := s.rpcAdvertise.(*net.TCPAddr)
 	if !ok {
-		list.Close()
+		listener.Close()
 		return fmt.Errorf("RPC advertise address is not a TCP Address: %v", addr)
 	}
 	if addr.IP.IsUnspecified() {
-		list.Close()
+		listener.Close()
 		return fmt.Errorf("RPC advertise address is not advertisable: %v", addr)
 	}
 
@@ -779,8 +929,15 @@ func (s *Server) setupRaft() error {
 	}()
 
 	// Create the FSM
+	fsmConfig := &FSMConfig{
+		EvalBroker: s.evalBroker,
+		Periodic:   s.periodicDispatcher,
+		Blocked:    s.blockedEvals,
+		LogOutput:  s.config.LogOutput,
+		Region:     s.Region(),
+	}
 	var err error
-	s.fsm, err = NewFSM(s.evalBroker, s.periodicDispatcher, s.blockedEvals, s.config.LogOutput)
+	s.fsm, err = NewFSM(fsmConfig)
 	if err != nil {
 		return err
 	}
@@ -796,6 +953,9 @@ func (s *Server) setupRaft() error {
 	// Our version of Raft protocol requires the LocalID to match the network
 	// address of the transport.
 	s.config.RaftConfig.LocalID = raft.ServerID(trans.LocalAddr())
+	if s.config.RaftConfig.ProtocolVersion >= 3 {
+		s.config.RaftConfig.LocalID = raft.ServerID(s.config.NodeID)
+	}
 
 	// Build an all in-memory setup for dev mode, otherwise prepare a full
 	// disk-based setup.
@@ -870,7 +1030,7 @@ func (s *Server) setupRaft() error {
 			if err != nil {
 				return fmt.Errorf("recovery failed to parse peers.json: %v", err)
 			}
-			tmpFsm, err := NewFSM(s.evalBroker, s.periodicDispatcher, s.blockedEvals, s.config.LogOutput)
+			tmpFsm, err := NewFSM(fsmConfig)
 			if err != nil {
 				return fmt.Errorf("recovery failed to make temp FSM: %v", err)
 			}
@@ -893,12 +1053,10 @@ func (s *Server) setupRaft() error {
 			return err
 		}
 		if !hasState {
-			// TODO (alexdadgar) - This will need to be updated when
-			// we add support for node IDs.
 			configuration := raft.Configuration{
 				Servers: []raft.Server{
-					raft.Server{
-						ID:      raft.ServerID(trans.LocalAddr()),
+					{
+						ID:      s.config.RaftConfig.LocalID,
 						Address: trans.LocalAddr(),
 					},
 				},
@@ -933,6 +1091,9 @@ func (s *Server) setupSerf(conf *serf.Config, ch chan serf.Event, path string) (
 	conf.Tags["vsn"] = fmt.Sprintf("%d", structs.ApiMajorVersion)
 	conf.Tags["mvn"] = fmt.Sprintf("%d", structs.ApiMinorVersion)
 	conf.Tags["build"] = s.config.Build
+	conf.Tags["raft_vsn"] = fmt.Sprintf("%d", s.config.RaftConfig.ProtocolVersion)
+	conf.Tags["id"] = s.config.NodeID
+	conf.Tags["rpc_addr"] = s.rpcAdvertise.(*net.TCPAddr).IP.String()
 	conf.Tags["port"] = fmt.Sprintf("%d", s.rpcAdvertise.(*net.TCPAddr).Port)
 	if s.config.Bootstrap || (s.config.DevMode && !s.config.DevDisableBootstrap) {
 		conf.Tags["bootstrap"] = "1"
@@ -940,6 +1101,15 @@ func (s *Server) setupSerf(conf *serf.Config, ch chan serf.Event, path string) (
 	bootstrapExpect := atomic.LoadInt32(&s.config.BootstrapExpect)
 	if bootstrapExpect != 0 {
 		conf.Tags["expect"] = fmt.Sprintf("%d", bootstrapExpect)
+	}
+	if s.config.NonVoter {
+		conf.Tags["nonvoter"] = "1"
+	}
+	if s.config.RedundancyZone != "" {
+		conf.Tags[AutopilotRZTag] = s.config.RedundancyZone
+	}
+	if s.config.UpgradeVersion != "" {
+		conf.Tags[AutopilotVersionTag] = s.config.UpgradeVersion
 	}
 	conf.MemberlistConfig.LogOutput = s.config.LogOutput
 	conf.LogOutput = s.config.LogOutput
@@ -1036,13 +1206,27 @@ func (s *Server) State() *state.StateStore {
 	return s.fsm.State()
 }
 
+// setLeaderAcl stores the given ACL token as the current leader's ACL token.
+func (s *Server) setLeaderAcl(token string) {
+	s.leaderAclLock.Lock()
+	s.leaderAcl = token
+	s.leaderAclLock.Unlock()
+}
+
+// getLeaderAcl retrieves the leader's ACL token
+func (s *Server) getLeaderAcl() string {
+	s.leaderAclLock.Lock()
+	defer s.leaderAclLock.Unlock()
+	return s.leaderAcl
+}
+
 // Regions returns the known regions in the cluster.
 func (s *Server) Regions() []string {
 	s.peerLock.RLock()
 	defer s.peerLock.RUnlock()
 
 	regions := make([]string, 0, len(s.peers))
-	for region, _ := range s.peers {
+	for region := range s.peers {
 		regions = append(regions, region)
 	}
 	sort.Strings(regions)
@@ -1104,7 +1288,7 @@ func (s *Server) Stats() map[string]map[string]string {
 		return strconv.FormatUint(v, 10)
 	}
 	stats := map[string]map[string]string{
-		"nomad": map[string]string{
+		"nomad": {
 			"server":        "true",
 			"leader":        fmt.Sprintf("%v", s.IsLeader()),
 			"leader_addr":   string(s.raft.Leader()),
@@ -1119,7 +1303,7 @@ func (s *Server) Stats() map[string]map[string]string {
 	return stats
 }
 
-// Region retuns the region of the server
+// Region returns the region of the server
 func (s *Server) Region() string {
 	return s.config.Region
 }
@@ -1134,13 +1318,19 @@ func (s *Server) GetConfig() *Config {
 	return s.config
 }
 
+// ReplicationToken returns the token used for replication. We use a method to support
+// dynamic reloading of this value later.
+func (s *Server) ReplicationToken() string {
+	return s.config.ReplicationToken
+}
+
 // peersInfoContent is used to help operators understand what happened to the
 // peers.json file. This is written to a file called peers.info in the same
 // location.
 const peersInfoContent = `
 As of Nomad 0.5.5, the peers.json file is only used for recovery
 after an outage. It should be formatted as a JSON array containing the address
-and port of each Consul server in the cluster, like this:
+and port (RPC) of each Nomad server in the cluster, like this:
 
 ["10.1.0.1:4647","10.1.0.2:4647","10.1.0.3:4647"]
 

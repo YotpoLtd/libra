@@ -22,9 +22,9 @@ The table below shows this endpoint's support for
 [blocking queries](/api/index.html#blocking-queries) and
 [required ACLs](/api/index.html#acls).
 
-| Blocking Queries | ACL Required |
-| ---------------- | ------------ |
-| `YES`            | `none`       |
+| Blocking Queries | ACL Required                |
+| ---------------- | --------------------------- |
+| `YES`            | `namespace:list-jobs`       |
 
 ### Parameters
 
@@ -35,12 +35,12 @@ The table below shows this endpoint's support for
 
 ```text
 $ curl \
-    https://nomad.rocks/v1/jobs
+    https://localhost:4646/v1/jobs
 ```
 
 ```text
 $ curl \
-    https://nomad.rocks/v1/jobs?prefix=team
+    https://localhost:4646/v1/jobs?prefix=team
 ```
 
 ### Sample Response
@@ -96,11 +96,23 @@ The table below shows this endpoint's support for
 
 | Blocking Queries | ACL Required |
 | ---------------- | ------------ |
-| `NO`             | `none`       |
+| `NO`             | `namespace:submit-job`<br>`namespace:sentinel-override` if `PolicyOverride` set |
 
 ### Parameters
 
-There are no parameters, but the request _body_ contains the entire job file.
+- `Job` `(Job: <required>)` - Specifies the JSON definition of the job.
+
+- `EnforceIndex` `(bool: false)` - If set, the job will only be registered if the
+  passed `JobModifyIndex` matches the current job's index. If the index is zero,
+  the register only occurs if the job is new. This paradigm allows check-and-set
+  style job updating.
+
+- `JobModifyIndex` `(int: 0)` - Specifies the `JobModifyIndex` to enforce the
+  current job is at.
+
+- `PolicyOverride` `(bool: false)` - If set, any soft mandatory Sentinel policies
+  will be overridden. This allows a job to be registered when it would be denied
+  by policy.
 
 ### Sample Payload
 
@@ -129,7 +141,7 @@ There are no parameters, but the request _body_ contains the entire job file.
                 },
                 "Services": [{
                     "Id": "",
-                    "Name": "global-redis-check",
+                    "Name": "redis-cache",
                     "Tags": [
                         "global",
                         "cache"
@@ -194,7 +206,7 @@ There are no parameters, but the request _body_ contains the entire job file.
 $ curl \
     --request POST \
     --data @my-job.nomad \
-    https://nomad.rocks/v1/jobs
+    https://localhost:4646/v1/jobs
 ```
 
 ### Sample Response
@@ -224,9 +236,9 @@ The table below shows this endpoint's support for
 [blocking queries](/api/index.html#blocking-queries) and
 [required ACLs](/api/index.html#acls).
 
-| Blocking Queries | ACL Required |
-| ---------------- | ------------ |
-| `YES`            | `none`       |
+| Blocking Queries | ACL Required               |
+| ---------------- | -------------------------- |
+| `YES`            | `namespace:read-job`       |
 
 ### Parameters
 
@@ -237,7 +249,7 @@ The table below shows this endpoint's support for
 
 ```text
 $ curl \
-    https://nomad.rocks/v1/job/my-job
+    https://localhost:4646/v1/job/my-job
 ```
 
 ### Sample Response
@@ -438,9 +450,9 @@ The table below shows this endpoint's support for
 [blocking queries](/api/index.html#blocking-queries) and
 [required ACLs](/api/index.html#acls).
 
-| Blocking Queries | ACL Required |
-| ---------------- | ------------ |
-| `YES`            | `none`       |
+| Blocking Queries | ACL Required               |
+| ---------------- | -------------------------- |
+| `YES`            | `namespace:read-job`       |
 
 ### Parameters
 
@@ -451,7 +463,7 @@ The table below shows this endpoint's support for
 
 ```text
 $ curl \
-    https://nomad.rocks/v1/job/my-job/versions
+    https://localhost:4646/v1/job/my-job/versions
 ```
 
 ### Sample Response
@@ -507,7 +519,7 @@ $ curl \
             "Env": null,
             "Services": [
               {
-                "Name": "global-redis-check",
+                "Name": "redis-cache",
                 "PortLabel": "db",
                 "Tags": [
                   "global",
@@ -610,20 +622,24 @@ The table below shows this endpoint's support for
 [blocking queries](/api/index.html#blocking-queries) and
 [required ACLs](/api/index.html#acls).
 
-| Blocking Queries | ACL Required |
-| ---------------- | ------------ |
-| `YES`            | `none`       |
+| Blocking Queries | ACL Required               |
+| ---------------- | -------------------------- |
+| `YES`            | `namespace:read-job`       |
 
 ### Parameters
 
 - `:job_id` `(string: <required>)` - Specifies the ID of the job (as specified in
   the job file during submission). This is specified as part of the path.
 
+- `all` `(bool: false)` - Specifies whether the list of allocations should
+  include allocations from a previously registered job with the same ID. This is
+  possible if the job is deregistered and reregistered.
+
 ### Sample Request
 
 ```text
 $ curl \
-    https://nomad.rocks/v1/job/my-job/allocations
+    https://localhost:4646/v1/job/my-job/allocations
 ```
 
 ### Sample Response
@@ -745,7 +761,8 @@ $ curl \
     },
     "CreateIndex": 9,
     "ModifyIndex": 13,
-    "CreateTime": 1495755675944527600
+    "CreateTime": 1495755675944527600,
+    "ModifyTime": 1495755675944527600
   }
 ]
 ```
@@ -762,9 +779,9 @@ The table below shows this endpoint's support for
 [blocking queries](/api/index.html#blocking-queries) and
 [required ACLs](/api/index.html#acls).
 
-| Blocking Queries | ACL Required |
-| ---------------- | ------------ |
-| `YES`            | `none`       |
+| Blocking Queries | ACL Required               |
+| ---------------- | -------------------------- |
+| `YES`            | `namespace:read-job`       |
 
 ### Parameters
 
@@ -775,7 +792,7 @@ The table below shows this endpoint's support for
 
 ```text
 $ curl \
-    https://nomad.rocks/v1/job/my-job/evaluations
+    https://localhost:4646/v1/job/my-job/evaluations
 ```
 
 ### Sample Response
@@ -823,9 +840,9 @@ The table below shows this endpoint's support for
 [blocking queries](/api/index.html#blocking-queries) and
 [required ACLs](/api/index.html#acls).
 
-| Blocking Queries | ACL Required |
-| ---------------- | ------------ |
-| `YES`            | `none`       |
+| Blocking Queries | ACL Required               |
+| ---------------- | -------------------------- |
+| `YES`            | `namespace:read-job`       |
 
 ### Parameters
 
@@ -836,7 +853,7 @@ The table below shows this endpoint's support for
 
 ```text
 $ curl \
-    https://nomad.rocks/v1/job/my-job/deployments
+    https://localhost:4646/v1/job/my-job/deployments
 ```
 
 ### Sample Response
@@ -908,9 +925,9 @@ The table below shows this endpoint's support for
 [blocking queries](/api/index.html#blocking-queries) and
 [required ACLs](/api/index.html#acls).
 
-| Blocking Queries | ACL Required |
-| ---------------- | ------------ |
-| `YES`            | `none`       |
+| Blocking Queries | ACL Required               |
+| ---------------- | -------------------------- |
+| `YES`            | `namespace:read-job`       |
 
 ### Parameters
 
@@ -921,7 +938,7 @@ The table below shows this endpoint's support for
 
 ```text
 $ curl \
-    https://nomad.rocks/v1/job/my-job/deployments
+    https://localhost:4646/v1/job/my-job/deployment
 ```
 
 ### Sample Response
@@ -968,9 +985,9 @@ The table below shows this endpoint's support for
 [blocking queries](/api/index.html#blocking-queries) and
 [required ACLs](/api/index.html#acls).
 
-| Blocking Queries | ACL Required |
-| ---------------- | ------------ |
-| `YES`            | `none`       |
+| Blocking Queries | ACL Required               |
+| ---------------- | -------------------------- |
+| `YES`            | `namespace:read-job`       |
 
 ### Parameters
 
@@ -981,7 +998,7 @@ The table below shows this endpoint's support for
 
 ```text
 $ curl \
-    https://nomad.rocks/v1/job/my-job/summary
+    https://localhost:4646/v1/job/my-job/summary
 ```
 
 ### Sample Response
@@ -1023,7 +1040,7 @@ The table below shows this endpoint's support for
 
 | Blocking Queries | ACL Required |
 | ---------------- | ------------ |
-| `NO`             | `none`       |
+| `NO`             | `namespace:submit-job`<br>`namespace:sentinel-override` if `PolicyOverride` set |
 
 ### Parameters
 
@@ -1032,13 +1049,17 @@ The table below shows this endpoint's support for
 
 - `Job` `(Job: <required>)` - Specifies the JSON definition of the job.
 
-- `EnforceIndex` `(int: 0)` - If set, the job will only be registered if the
+- `EnforceIndex` `(bool: false)` - If set, the job will only be registered if the
   passed `JobModifyIndex` matches the current job's index. If the index is zero,
   the register only occurs if the job is new. This paradigm allows check-and-set
   style job updating.
 
 - `JobModifyIndex` `(int: 0)` - Specifies the `JobModifyIndex` to enforce the
   current job is at.
+
+- `PolicyOverride` `(bool: false)` - If set, any soft mandatory Sentinel policies
+  will be overridden. This allows a job to be registered when it would be denied
+  by policy.
 
 ### Sample Payload
 
@@ -1047,10 +1068,10 @@ The table below shows this endpoint's support for
   "Job": {
     // ...
   },
-  "EnforceIndex": 1,
+  "EnforceIndex": true,
   "JobModifyIndex": 4
 }
-```      
+```
 
 ### Sample Request
 
@@ -1058,7 +1079,7 @@ The table below shows this endpoint's support for
 $ curl \
     --request POST \
     --data @payload.json \
-    https://nomad.rocks/v1/job/my-job
+    https://localhost:4646/v1/job/my-job
 ```
 
 ### Sample Response
@@ -1083,9 +1104,9 @@ The table below shows this endpoint's support for
 [blocking queries](/api/index.html#blocking-queries) and
 [required ACLs](/api/index.html#acls).
 
-| Blocking Queries | ACL Required |
-| ---------------- | ------------ |
-| `NO`             | `none`       |
+| Blocking Queries | ACL Required                   |
+| ---------------- | ------------------------------ |
+| `NO`             | `namespace:dispatch-job`       |
 
 ### Parameters
 
@@ -1115,7 +1136,7 @@ The table below shows this endpoint's support for
 $ curl \
     --request POST \
     --payload @payload.json \
-    https://nomad.rocks/v1/job/my-job/dispatch
+    https://localhost:4646/v1/job/my-job/dispatch
 ```
 
 ### Sample Response
@@ -1142,9 +1163,9 @@ The table below shows this endpoint's support for
 [blocking queries](/api/index.html#blocking-queries) and
 [required ACLs](/api/index.html#acls).
 
-| Blocking Queries | ACL Required |
-| ---------------- | ------------ |
-| `NO`             | `none`       |
+| Blocking Queries | ACL Required                 |
+| ---------------- | ---------------------------- |
+| `NO`             | `namespace:submit-job`       |
 
 ### Parameters
 
@@ -1172,7 +1193,7 @@ The table below shows this endpoint's support for
 $ curl \
     --request POST \
     --payload @payload.json \
-    https://nomad.rocks/v1/job/my-job/revert
+    https://localhost:4646/v1/job/my-job/revert
 ```
 
 ### Sample Response
@@ -1198,9 +1219,9 @@ The table below shows this endpoint's support for
 [blocking queries](/api/index.html#blocking-queries) and
 [required ACLs](/api/index.html#acls).
 
-| Blocking Queries | ACL Required |
-| ---------------- | ------------ |
-| `NO`             | `none`       |
+| Blocking Queries | ACL Required                 |
+| ---------------- | ---------------------------- |
+| `NO`             | `namespace:submit-job`       |
 
 ### Parameters
 
@@ -1228,7 +1249,7 @@ The table below shows this endpoint's support for
 $ curl \
     --request POST \
     --payload @payload.json \
-    https://nomad.rocks/v1/job/my-job/stable
+    https://localhost:4646/v1/job/my-job/stable
 ```
 
 ### Sample Response
@@ -1253,9 +1274,9 @@ The table below shows this endpoint's support for
 [blocking queries](/api/index.html#blocking-queries) and
 [required ACLs](/api/index.html#acls).
 
-| Blocking Queries | ACL Required |
-| ---------------- | ------------ |
-| `NO`             | `none`       |
+| Blocking Queries | ACL Required               |
+| ---------------- | -------------------------- |
+| `NO`             | `namespace:read-job`       |
 
 ### Parameters
 
@@ -1267,7 +1288,7 @@ The table below shows this endpoint's support for
 ```text
 $ curl \
     --request POST \
-    https://nomad.rocks/v1/job/my-job/evaluate
+    https://localhost:4646/v1/job/my-job/evaluate
 ```
 
 ### Sample Response
@@ -1294,7 +1315,7 @@ The table below shows this endpoint's support for
 
 | Blocking Queries | ACL Required |
 | ---------------- | ------------ |
-| `NO`             | `none`       |
+| `NO`             | `namespace:submit-job`<br>`namespace:sentinel-override` if `PolicyOverride` set |
 
 ### Parameters
 
@@ -1307,12 +1328,17 @@ The table below shows this endpoint's support for
   submitted and server side version of the job should be included in the
   response.
 
+- `PolicyOverride` `(bool: false)` - If set, any soft mandatory Sentinel policies
+  will be overridden. This allows a job to be registered when it would be denied
+  by policy.
+
 ### Sample Payload
 
 ```json
 {
   "Job": "...",
-  "Diff": true
+  "Diff": true,
+  "PolicyOverride": false
 }
 ```
 
@@ -1322,7 +1348,7 @@ The table below shows this endpoint's support for
 $ curl \
     --request POST \
     --payload @payload.json \
-    https://nomad.rocks/v1/job/my-job/plan
+    https://localhost:4646/v1/job/my-job/plan
 ```
 
 ### Sample Response
@@ -1451,7 +1477,7 @@ $ curl \
       "NodesExhausted": 1,
       "ClassExhausted": null,
       "DimensionExhausted": {
-        "cpu exhausted": 1
+        "cpu": 1
       }
     }
   },
@@ -1508,9 +1534,9 @@ The table below shows this endpoint's support for
 [blocking queries](/api/index.html#blocking-queries) and
 [required ACLs](/api/index.html#acls).
 
-| Blocking Queries | ACL Required |
-| ---------------- | ------------ |
-| `NO`             | `none`       |
+| Blocking Queries | ACL Required           |
+| ---------------- | ---------------------- |
+| `NO`             | `namespace:submit-job` |
 
 ### Parameters
 
@@ -1522,7 +1548,7 @@ The table below shows this endpoint's support for
 ```text
 $ curl \
     --request POST \
-    https://nomad.rocks/v1/job/my-job/periodic/force
+    https://localhost:4646/v1/job/my-job/periodic/force
 ```
 
 ### Sample Response
@@ -1546,9 +1572,9 @@ The table below shows this endpoint's support for
 [blocking queries](/api/index.html#blocking-queries) and
 [required ACLs](/api/index.html#acls).
 
-| Blocking Queries | ACL Required |
-| ---------------- | ------------ |
-| `NO`             | `none`       |
+| Blocking Queries | ACL Required                 |
+| ---------------- | ---------------------------- |
+| `NO`             | `namespace:submit-job`       |
 
 ### Parameters
 
@@ -1564,7 +1590,7 @@ The table below shows this endpoint's support for
 ```text
 $ curl \
     --request DELETE \
-    https://nomad.rocks/v1/job/my-job?purge=true
+    https://localhost:4646/v1/job/my-job?purge=true
 ```
 
 ### Sample Response

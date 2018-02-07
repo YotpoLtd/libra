@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	metrics "github.com/armon/go-metrics"
 	"github.com/hashicorp/consul/api"
 	version "github.com/hashicorp/go-version"
 	"github.com/hashicorp/nomad/client"
@@ -21,13 +22,12 @@ import (
 	"github.com/hashicorp/nomad/nomad"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/nomad/structs/config"
+	"github.com/hashicorp/raft"
 )
 
 const (
-	clientHttpCheckInterval = 10 * time.Second
-	clientHttpCheckTimeout  = 3 * time.Second
-	serverHttpCheckInterval = 10 * time.Second
-	serverHttpCheckTimeout  = 6 * time.Second
+	agentHttpCheckInterval  = 10 * time.Second
+	agentHttpCheckTimeout   = 5 * time.Second
 	serverRpcCheckInterval  = 10 * time.Second
 	serverRpcCheckTimeout   = 3 * time.Second
 	serverSerfCheckInterval = 10 * time.Second
@@ -44,7 +44,9 @@ const (
 // scheduled to, and are responsible for interfacing with
 // servers to run allocations.
 type Agent struct {
-	config    *Config
+	config     *Config
+	configLock sync.Mutex
+
 	logger    *log.Logger
 	logOutput io.Writer
 
@@ -66,15 +68,18 @@ type Agent struct {
 	shutdown     bool
 	shutdownCh   chan struct{}
 	shutdownLock sync.Mutex
+
+	InmemSink *metrics.InmemSink
 }
 
 // NewAgent is used to create a new agent with the given configuration
-func NewAgent(config *Config, logOutput io.Writer) (*Agent, error) {
+func NewAgent(config *Config, logOutput io.Writer, inmem *metrics.InmemSink) (*Agent, error) {
 	a := &Agent{
 		config:     config,
 		logger:     log.New(logOutput, "", log.LstdFlags|log.Lmicroseconds),
 		logOutput:  logOutput,
 		shutdownCh: make(chan struct{}),
+		InmemSink:  inmem,
 	}
 
 	if err := a.setupConsul(config.Consul); err != nil {
@@ -102,10 +107,19 @@ func convertServerConfig(agentConfig *Config, logOutput io.Writer) (*nomad.Confi
 	}
 	conf.LogOutput = logOutput
 	conf.DevMode = agentConfig.DevMode
-	conf.Build = fmt.Sprintf("%s%s", agentConfig.Version, agentConfig.VersionPrerelease)
+	conf.Build = agentConfig.Version.VersionNumber()
 	if agentConfig.Region != "" {
 		conf.Region = agentConfig.Region
 	}
+
+	// Set the Authoritative Region if set, otherwise default to
+	// the same as the local region.
+	if agentConfig.Server.AuthoritativeRegion != "" {
+		conf.AuthoritativeRegion = agentConfig.Server.AuthoritativeRegion
+	} else if agentConfig.Region != "" {
+		conf.AuthoritativeRegion = agentConfig.Region
+	}
+
 	if agentConfig.Datacenter != "" {
 		conf.Datacenter = agentConfig.Datacenter
 	}
@@ -128,11 +142,55 @@ func convertServerConfig(agentConfig *Config, logOutput io.Writer) (*nomad.Confi
 	if agentConfig.Server.ProtocolVersion != 0 {
 		conf.ProtocolVersion = uint8(agentConfig.Server.ProtocolVersion)
 	}
+	if agentConfig.Server.RaftProtocol != 0 {
+		conf.RaftConfig.ProtocolVersion = raft.ProtocolVersion(agentConfig.Server.RaftProtocol)
+	}
 	if agentConfig.Server.NumSchedulers != 0 {
 		conf.NumSchedulers = agentConfig.Server.NumSchedulers
 	}
 	if len(agentConfig.Server.EnabledSchedulers) != 0 {
 		conf.EnabledSchedulers = agentConfig.Server.EnabledSchedulers
+	}
+	if agentConfig.ACL.Enabled {
+		conf.ACLEnabled = true
+	}
+	if agentConfig.ACL.ReplicationToken != "" {
+		conf.ReplicationToken = agentConfig.ACL.ReplicationToken
+	}
+	if agentConfig.Sentinel != nil {
+		conf.SentinelConfig = agentConfig.Sentinel
+	}
+	if agentConfig.Server.NonVotingServer {
+		conf.NonVoter = true
+	}
+	if agentConfig.Server.RedundancyZone != "" {
+		conf.RedundancyZone = agentConfig.Server.RedundancyZone
+	}
+	if agentConfig.Server.UpgradeVersion != "" {
+		conf.UpgradeVersion = agentConfig.Server.UpgradeVersion
+	}
+	if agentConfig.Autopilot != nil {
+		if agentConfig.Autopilot.CleanupDeadServers != nil {
+			conf.AutopilotConfig.CleanupDeadServers = *agentConfig.Autopilot.CleanupDeadServers
+		}
+		if agentConfig.Autopilot.ServerStabilizationTime != 0 {
+			conf.AutopilotConfig.ServerStabilizationTime = agentConfig.Autopilot.ServerStabilizationTime
+		}
+		if agentConfig.Autopilot.LastContactThreshold != 0 {
+			conf.AutopilotConfig.LastContactThreshold = agentConfig.Autopilot.LastContactThreshold
+		}
+		if agentConfig.Autopilot.MaxTrailingLogs != 0 {
+			conf.AutopilotConfig.MaxTrailingLogs = uint64(agentConfig.Autopilot.MaxTrailingLogs)
+		}
+		if agentConfig.Autopilot.EnableRedundancyZones != nil {
+			conf.AutopilotConfig.EnableRedundancyZones = *agentConfig.Autopilot.EnableRedundancyZones
+		}
+		if agentConfig.Autopilot.DisableUpgradeMigration != nil {
+			conf.AutopilotConfig.DisableUpgradeMigration = *agentConfig.Autopilot.DisableUpgradeMigration
+		}
+		if agentConfig.Autopilot.EnableCustomUpgrades != nil {
+			conf.AutopilotConfig.EnableCustomUpgrades = *agentConfig.Autopilot.EnableCustomUpgrades
+		}
 	}
 
 	// Set up the bind addresses
@@ -212,6 +270,11 @@ func convertServerConfig(agentConfig *Config, logOutput io.Writer) (*nomad.Confi
 
 	// Set the TLS config
 	conf.TLSConfig = agentConfig.TLSConfig
+
+	// Setup telemetry related config
+	conf.StatsCollectionInterval = agentConfig.Telemetry.collectionInterval
+	conf.DisableTaggedMetrics = agentConfig.Telemetry.DisableTaggedMetrics
+	conf.BackwardsCompatibleMetrics = agentConfig.Telemetry.BackwardsCompatibleMetrics
 
 	return conf, nil
 }
@@ -308,8 +371,7 @@ func (a *Agent) clientConfig() (*clientconfig.Config, error) {
 	r.IOPS = a.config.Client.Reserved.IOPS
 	conf.GloballyReservedPorts = a.config.Client.Reserved.ParsedReservedPorts
 
-	conf.Version = fmt.Sprintf("%s%s", a.config.Version, a.config.VersionPrerelease)
-	conf.Revision = a.config.Revision
+	conf.Version = a.config.Version
 
 	if *a.config.Consul.AutoAdvertise && a.config.Consul.ClientServiceName == "" {
 		return nil, fmt.Errorf("client_service_name must be set when auto_advertise is enabled")
@@ -317,9 +379,13 @@ func (a *Agent) clientConfig() (*clientconfig.Config, error) {
 
 	conf.ConsulConfig = a.config.Consul
 	conf.VaultConfig = a.config.Vault
+
+	// Set up Telemetry configuration
 	conf.StatsCollectionInterval = a.config.Telemetry.collectionInterval
 	conf.PublishNodeMetrics = a.config.Telemetry.PublishNodeMetrics
 	conf.PublishAllocationMetrics = a.config.Telemetry.PublishAllocationMetrics
+	conf.DisableTaggedMetrics = a.config.Telemetry.DisableTaggedMetrics
+	conf.BackwardsCompatibleMetrics = a.config.Telemetry.BackwardsCompatibleMetrics
 
 	// Set the TLS related configs
 	conf.TLSConfig = a.config.TLSConfig
@@ -337,6 +403,11 @@ func (a *Agent) clientConfig() (*clientconfig.Config, error) {
 		// Default no_host_uuid to true
 		conf.NoHostUUID = true
 	}
+
+	// Setup the ACLs
+	conf.ACLEnabled = a.config.ACL.Enabled
+	conf.ACLTokenTTL = a.config.ACL.TokenTTL
+	conf.ACLPolicyTTL = a.config.ACL.PolicyTTL
 
 	return conf, nil
 }
@@ -389,7 +460,7 @@ func (a *Agent) setupServer() error {
 			PortLabel: a.config.AdvertiseAddrs.RPC,
 			Tags:      []string{consul.ServiceTagRPC},
 			Checks: []*structs.ServiceCheck{
-				&structs.ServiceCheck{
+				{
 					Name:      "Nomad Server RPC Check",
 					Type:      "tcp",
 					Interval:  serverRpcCheckInterval,
@@ -403,7 +474,7 @@ func (a *Agent) setupServer() error {
 			PortLabel: a.config.AdvertiseAddrs.Serf,
 			Tags:      []string{consul.ServiceTagSerf},
 			Checks: []*structs.ServiceCheck{
-				&structs.ServiceCheck{
+				{
 					Name:      "Nomad Server Serf Check",
 					Type:      "tcp",
 					Interval:  serverSerfCheckInterval,
@@ -470,7 +541,6 @@ func (a *Agent) setupClient() error {
 		}
 	}
 
-	// Create the client
 	client, err := client.NewClient(conf, a.consulCatalog, a.consulService, a.logger)
 	if err != nil {
 		return fmt.Errorf("client setup failed: %v", err)
@@ -507,16 +577,16 @@ func (a *Agent) agentHTTPCheck(server bool) *structs.ServiceCheck {
 	check := structs.ServiceCheck{
 		Name:      "Nomad Client HTTP Check",
 		Type:      "http",
-		Path:      "/v1/agent/servers",
+		Path:      "/v1/agent/health?type=client",
 		Protocol:  "http",
-		Interval:  clientHttpCheckInterval,
-		Timeout:   clientHttpCheckTimeout,
+		Interval:  agentHttpCheckInterval,
+		Timeout:   agentHttpCheckTimeout,
 		PortLabel: httpCheckAddr,
 	}
 	// Switch to endpoint that doesn't require a leader for servers
 	if server {
 		check.Name = "Nomad Server HTTP Check"
-		check.Path = "/v1/status/peers"
+		check.Path = "/v1/agent/health?type=server"
 	}
 	if !a.config.TLSConfig.EnableHTTP {
 		// No HTTPS, return a plain http check
@@ -690,6 +760,69 @@ func (a *Agent) Stats() map[string]map[string]string {
 		}
 	}
 	return stats
+}
+
+// ShouldReload determines if we should reload the configuration and agent
+// connections. If the TLS Configuration has not changed, we shouldn't reload.
+func (a *Agent) ShouldReload(newConfig *Config) (bool, bool) {
+	a.configLock.Lock()
+	defer a.configLock.Unlock()
+	if a.config.TLSConfig.Equals(newConfig.TLSConfig) {
+		return false, false
+	}
+
+	return true, true // requires a reload of both agent and http server
+}
+
+// Reload handles configuration changes for the agent. Provides a method that
+// is easier to unit test, as this action is invoked via SIGHUP.
+func (a *Agent) Reload(newConfig *Config) error {
+	a.configLock.Lock()
+	defer a.configLock.Unlock()
+
+	if newConfig == nil || newConfig.TLSConfig == nil {
+		return fmt.Errorf("cannot reload agent with nil configuration")
+	}
+
+	// This is just a TLS configuration reload, we don't need to refresh
+	// existing network connections
+	if !a.config.TLSConfig.IsEmpty() && !newConfig.TLSConfig.IsEmpty() {
+
+		// Reload the certificates on the keyloader and on success store the
+		// updated TLS config. It is important to reuse the same keyloader
+		// as this allows us to dynamically reload configurations not only
+		// on the Agent but on the Server and Client too (they are
+		// referencing the same keyloader).
+		keyloader := a.config.TLSConfig.GetKeyLoader()
+		_, err := keyloader.LoadKeyPair(newConfig.TLSConfig.CertFile, newConfig.TLSConfig.KeyFile)
+		if err != nil {
+			return err
+		}
+		a.config.TLSConfig = newConfig.TLSConfig
+		a.config.TLSConfig.KeyLoader = keyloader
+		return nil
+	}
+
+	// Completely reload the agent's TLS configuration (moving from non-TLS to
+	// TLS, or vice versa)
+	// This does not handle errors in loading the new TLS configuration
+	a.config.TLSConfig = newConfig.TLSConfig.Copy()
+
+	if newConfig.TLSConfig.IsEmpty() {
+		a.logger.Println("[WARN] agent: Downgrading agent's existing TLS configuration to plaintext")
+	} else {
+		a.logger.Println("[INFO] agent: Upgrading from plaintext configuration to TLS")
+	}
+
+	return nil
+}
+
+// GetConfig creates a locked reference to the agent's config
+func (a *Agent) GetConfig() *Config {
+	a.configLock.Lock()
+	defer a.configLock.Unlock()
+
+	return a.config
 }
 
 // setupConsul creates the Consul client and starts its main Run loop.

@@ -5,7 +5,9 @@ import (
 	"strings"
 
 	"github.com/hashicorp/nomad/api"
+	"github.com/hashicorp/nomad/api/contexts"
 	flaghelper "github.com/hashicorp/nomad/helper/flag-helpers"
+	"github.com/posener/complete"
 )
 
 type DeploymentPromoteCommand struct {
@@ -16,13 +18,13 @@ func (c *DeploymentPromoteCommand) Help() string {
 	helpText := `
 Usage: nomad deployment promote [options] <deployment id>
 
-Promote is used to promote task groups in a deployment. Promotion should occur
-when the deployment has placed canaries for a task group and those canaries have
-been deemed healthy. When a task group is promoted, the rolling upgrade of the
-remaining allocations is unblocked. If the canaries are found to be unhealthy,
-the deployment may either be failed using the "nomad deployment fail" command,
-the job can be failed forward by submitting a new version or failed backwards by
-reverting to an older version using the "nomad job revert" command.
+  Promote is used to promote task groups in a deployment. Promotion should occur
+  when the deployment has placed canaries for a task group and those canaries have
+  been deemed healthy. When a task group is promoted, the rolling upgrade of the
+  remaining allocations is unblocked. If the canaries are found to be unhealthy,
+  the deployment may either be failed using the "nomad deployment fail" command,
+  the job can be failed forward by submitting a new version or failed backwards by
+  reverting to an older version using the "nomad job revert" command.
 
 General Options:
 
@@ -47,6 +49,30 @@ Promote Options:
 
 func (c *DeploymentPromoteCommand) Synopsis() string {
 	return "Promote canaries in a deployment"
+}
+
+func (c *DeploymentPromoteCommand) AutocompleteFlags() complete.Flags {
+	return mergeAutocompleteFlags(c.Meta.AutocompleteFlags(FlagSetClient),
+		complete.Flags{
+			"-group":   complete.PredictAnything,
+			"-detach":  complete.PredictNothing,
+			"-verbose": complete.PredictNothing,
+		})
+}
+
+func (c *DeploymentPromoteCommand) AutocompleteArgs() complete.Predictor {
+	return complete.PredictFunc(func(a complete.Args) []string {
+		client, err := c.Meta.Client()
+		if err != nil {
+			return nil
+		}
+
+		resp, _, err := client.Search().PrefixSearch(a.Last, contexts.Deployments, nil)
+		if err != nil {
+			return []string{}
+		}
+		return resp.Matches[contexts.Deployments]
+	})
 }
 
 func (c *DeploymentPromoteCommand) Run(args []string) int {

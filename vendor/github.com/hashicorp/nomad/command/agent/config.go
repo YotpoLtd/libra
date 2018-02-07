@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/nomad/helper"
 	"github.com/hashicorp/nomad/nomad"
 	"github.com/hashicorp/nomad/nomad/structs/config"
+	"github.com/hashicorp/nomad/version"
 )
 
 // Config is the configuration for the Nomad agent.
@@ -66,6 +67,9 @@ type Config struct {
 	// Server has our server related settings
 	Server *ServerConfig `mapstructure:"server"`
 
+	// ACL has our acl related settings
+	ACL *ACLConfig `mapstructure:"acl"`
+
 	// Telemetry is used to configure sending telemetry
 	Telemetry *Telemetry `mapstructure:"telemetry"`
 
@@ -90,9 +94,6 @@ type Config struct {
 	// for security bulletins
 	DisableAnonymousSignature bool `mapstructure:"disable_anonymous_signature"`
 
-	// AtlasConfig is used to configure Atlas
-	Atlas *AtlasConfig `mapstructure:"atlas"`
-
 	// Consul contains the configuration for the Consul Agent and
 	// parameters necessary to register services, their checks, and
 	// discover the current Nomad servers.
@@ -114,9 +115,7 @@ type Config struct {
 	DevMode bool `mapstructure:"-"`
 
 	// Version information is set at compilation time
-	Revision          string
-	Version           string
-	VersionPrerelease string
+	Version *version.VersionInfo
 
 	// List of config files that have been loaded (in order)
 	Files []string `mapstructure:"-"`
@@ -128,24 +127,12 @@ type Config struct {
 	// HTTPAPIResponseHeaders allows users to configure the Nomad http agent to
 	// set arbritrary headers on API responses
 	HTTPAPIResponseHeaders map[string]string `mapstructure:"http_api_response_headers"`
-}
 
-// AtlasConfig is used to enable an parameterize the Atlas integration
-type AtlasConfig struct {
-	// Infrastructure is the name of the infrastructure
-	// we belong to. e.g. hashicorp/stage
-	Infrastructure string `mapstructure:"infrastructure"`
+	// Sentinel holds sentinel related settings
+	Sentinel *config.SentinelConfig `mapstructure:"sentinel"`
 
-	// Token is our authentication token from Atlas
-	Token string `mapstructure:"token" json:"-"`
-
-	// Join controls if Atlas will attempt to auto-join the node
-	// to it's cluster. Requires Atlas integration.
-	Join bool `mapstructure:"join"`
-
-	// Endpoint is the SCADA endpoint used for Atlas integration. If
-	// empty, the defaults from the provider are used.
-	Endpoint string `mapstructure:"endpoint"`
+	// Autopilot contains the configuration for Autopilot behavior.
+	Autopilot *config.AutopilotConfig `mapstructure:"autopilot"`
 }
 
 // ClientConfig is configuration specific to the client mode
@@ -229,10 +216,37 @@ type ClientConfig struct {
 	NoHostUUID *bool `mapstructure:"no_host_uuid"`
 }
 
+// ACLConfig is configuration specific to the ACL system
+type ACLConfig struct {
+	// Enabled controls if we are enforce and manage ACLs
+	Enabled bool `mapstructure:"enabled"`
+
+	// TokenTTL controls how long we cache ACL tokens. This controls
+	// how stale they can be when we are enforcing policies. Defaults
+	// to "30s". Reducing this impacts performance by forcing more
+	// frequent resolution.
+	TokenTTL time.Duration `mapstructure:"token_ttl"`
+
+	// PolicyTTL controls how long we cache ACL policies. This controls
+	// how stale they can be when we are enforcing policies. Defaults
+	// to "30s". Reducing this impacts performance by forcing more
+	// frequent resolution.
+	PolicyTTL time.Duration `mapstructure:"policy_ttl"`
+
+	// ReplicationToken is used by servers to replicate tokens and policies
+	// from the authoritative region. This must be a valid management token
+	// within the authoritative region.
+	ReplicationToken string `mapstructure:"replication_token"`
+}
+
 // ServerConfig is configuration specific to the server mode
 type ServerConfig struct {
 	// Enabled controls if we are a server
 	Enabled bool `mapstructure:"enabled"`
+
+	// AuthoritativeRegion is used to control which region is treated as
+	// the source of truth for global tokens and ACL policies.
+	AuthoritativeRegion string `mapstructure:"authoritative_region"`
 
 	// BootstrapExpect tries to automatically bootstrap the Consul cluster,
 	// by withholding peers until enough servers join.
@@ -244,6 +258,9 @@ type ServerConfig struct {
 	// ProtocolVersion is the protocol version to speak. This must be between
 	// ProtocolVersionMin and ProtocolVersionMax.
 	ProtocolVersion int `mapstructure:"protocol_version"`
+
+	// RaftProtocol is the Raft protocol version to speak. This must be from [1-3].
+	RaftProtocol int `mapstructure:"raft_protocol"`
 
 	// NumSchedulers is the number of scheduler thread that are run.
 	// This can be as many as one per core, or zero to disable this server
@@ -313,6 +330,17 @@ type ServerConfig struct {
 	// true, we ignore the leave, and rejoin the cluster on start.
 	RejoinAfterLeave bool `mapstructure:"rejoin_after_leave"`
 
+	// (Enterprise-only) NonVotingServer is whether this server will act as a
+	// non-voting member of the cluster to help provide read scalability.
+	NonVotingServer bool `mapstructure:"non_voting_server"`
+
+	// (Enterprise-only) RedundancyZone is the redundancy zone to use for this server.
+	RedundancyZone string `mapstructure:"redundancy_zone"`
+
+	// (Enterprise-only) UpgradeVersion is the custom upgrade version to use when
+	// performing upgrade migrations.
+	UpgradeVersion string `mapstructure:"upgrade_version"`
+
 	// Encryption key to use for the Serf communication
 	EncryptKey string `mapstructure:"encrypt" json:"-"`
 }
@@ -327,12 +355,21 @@ type Telemetry struct {
 	StatsiteAddr             string        `mapstructure:"statsite_address"`
 	StatsdAddr               string        `mapstructure:"statsd_address"`
 	DataDogAddr              string        `mapstructure:"datadog_address"`
+	PrometheusMetrics        bool          `mapstructure:"prometheus_metrics"`
 	DisableHostname          bool          `mapstructure:"disable_hostname"`
 	UseNodeName              bool          `mapstructure:"use_node_name"`
 	CollectionInterval       string        `mapstructure:"collection_interval"`
 	collectionInterval       time.Duration `mapstructure:"-"`
 	PublishAllocationMetrics bool          `mapstructure:"publish_allocation_metrics"`
 	PublishNodeMetrics       bool          `mapstructure:"publish_node_metrics"`
+
+	// DisableTaggedMetrics disables a new version of generating metrics which
+	// uses tags
+	DisableTaggedMetrics bool `mapstructure:"disable_tagged_metrics"`
+
+	// BackwardsCompatibleMetrics allows for generating metrics in a simple
+	// key/value structure as done in older versions of Nomad
+	BackwardsCompatibleMetrics bool `mapstructure:"backwards_compatible_metrics"`
 
 	// Circonus: see https://github.com/circonus-labs/circonus-gometrics
 	// for more details on the various configuration options.
@@ -374,7 +411,7 @@ type Telemetry struct {
 	// check, it will *NOT* be activated. This setting overrides that behavior.
 	// Default: "false"
 	CirconusCheckForceMetricActivation string `mapstructure:"circonus_check_force_metric_activation"`
-	// CirconusCheckInstanceID serves to uniquely identify the metrics comming from this "instance".
+	// CirconusCheckInstanceID serves to uniquely identify the metrics coming from this "instance".
 	// It can be used to maintain metric continuity with transient or ephemeral instances as
 	// they move around within an infrastructure.
 	// Default: hostname:app
@@ -441,7 +478,7 @@ type Resources struct {
 }
 
 // ParseReserved expands the ReservedPorts string into a slice of port numbers.
-// The supported syntax is comma seperated integers or ranges seperated by
+// The supported syntax is comma separated integers or ranges separated by
 // hyphens. For example, "80,120-150,160"
 func (r *Resources) ParseReserved() error {
 	parts := strings.Split(r.ReservedPorts, ",")
@@ -525,6 +562,9 @@ func DevConfig() *Config {
 	conf.Client.GCDiskUsageThreshold = 99
 	conf.Client.GCInodeUsageThreshold = 99
 	conf.Client.GCMaxAllocs = 50
+	conf.Telemetry.PrometheusMetrics = true
+	conf.Telemetry.PublishAllocationMetrics = true
+	conf.Telemetry.PublishNodeMetrics = true
 
 	return conf
 }
@@ -543,7 +583,6 @@ func DefaultConfig() *Config {
 		},
 		Addresses:      &Addresses{},
 		AdvertiseAddrs: &AdvertiseAddrs{},
-		Atlas:          &AtlasConfig{},
 		Consul:         config.DefaultConsulConfig(),
 		Vault:          config.DefaultVaultConfig(),
 		Client: &ClientConfig{
@@ -566,12 +605,20 @@ func DefaultConfig() *Config {
 			RetryInterval:    "30s",
 			RetryMaxAttempts: 0,
 		},
+		ACL: &ACLConfig{
+			Enabled:   false,
+			TokenTTL:  30 * time.Second,
+			PolicyTTL: 30 * time.Second,
+		},
 		SyslogFacility: "LOCAL0",
 		Telemetry: &Telemetry{
 			CollectionInterval: "1s",
 			collectionInterval: 1 * time.Second,
 		},
 		TLSConfig: &config.TLSConfig{},
+		Sentinel:  &config.SentinelConfig{},
+		Version:   version.GetVersion(),
+		Autopilot: config.DefaultAutopilotConfig(),
 	}
 }
 
@@ -654,8 +701,7 @@ func (c *Config) Merge(b *Config) *Config {
 
 	// Apply the TLS Config
 	if result.TLSConfig == nil && b.TLSConfig != nil {
-		tlsConfig := *b.TLSConfig
-		result.TLSConfig = &tlsConfig
+		result.TLSConfig = b.TLSConfig.Copy()
 	} else if b.TLSConfig != nil {
 		result.TLSConfig = result.TLSConfig.Merge(b.TLSConfig)
 	}
@@ -674,6 +720,14 @@ func (c *Config) Merge(b *Config) *Config {
 		result.Server = &server
 	} else if b.Server != nil {
 		result.Server = result.Server.Merge(b.Server)
+	}
+
+	// Apply the acl config
+	if result.ACL == nil && b.ACL != nil {
+		server := *b.ACL
+		result.ACL = &server
+	} else if b.ACL != nil {
+		result.ACL = result.ACL.Merge(b.ACL)
 	}
 
 	// Apply the ports config
@@ -700,14 +754,6 @@ func (c *Config) Merge(b *Config) *Config {
 		result.AdvertiseAddrs = result.AdvertiseAddrs.Merge(b.AdvertiseAddrs)
 	}
 
-	// Apply the Atlas configuration
-	if result.Atlas == nil && b.Atlas != nil {
-		atlasConfig := *b.Atlas
-		result.Atlas = &atlasConfig
-	} else if b.Atlas != nil {
-		result.Atlas = result.Atlas.Merge(b.Atlas)
-	}
-
 	// Apply the Consul Configuration
 	if result.Consul == nil && b.Consul != nil {
 		result.Consul = b.Consul.Copy()
@@ -721,6 +767,21 @@ func (c *Config) Merge(b *Config) *Config {
 		result.Vault = &vaultConfig
 	} else if b.Vault != nil {
 		result.Vault = result.Vault.Merge(b.Vault)
+	}
+
+	// Apply the sentinel config
+	if result.Sentinel == nil && b.Sentinel != nil {
+		server := *b.Sentinel
+		result.Sentinel = &server
+	} else if b.Sentinel != nil {
+		result.Sentinel = result.Sentinel.Merge(b.Sentinel)
+	}
+
+	if result.Autopilot == nil && b.Autopilot != nil {
+		autopilot := *b.Autopilot
+		result.Autopilot = &autopilot
+	} else if b.Autopilot != nil {
+		result.Autopilot = result.Autopilot.Merge(b.Autopilot)
 	}
 
 	// Merge config files lists
@@ -902,12 +963,34 @@ func isTooManyColons(err error) bool {
 	return err != nil && strings.Contains(err.Error(), tooManyColons)
 }
 
+// Merge is used to merge two ACL configs together. The settings from the input always take precedence.
+func (a *ACLConfig) Merge(b *ACLConfig) *ACLConfig {
+	result := *a
+
+	if b.Enabled {
+		result.Enabled = true
+	}
+	if b.TokenTTL != 0 {
+		result.TokenTTL = b.TokenTTL
+	}
+	if b.PolicyTTL != 0 {
+		result.PolicyTTL = b.PolicyTTL
+	}
+	if b.ReplicationToken != "" {
+		result.ReplicationToken = b.ReplicationToken
+	}
+	return &result
+}
+
 // Merge is used to merge two server configs together
 func (a *ServerConfig) Merge(b *ServerConfig) *ServerConfig {
 	result := *a
 
 	if b.Enabled {
 		result.Enabled = true
+	}
+	if b.AuthoritativeRegion != "" {
+		result.AuthoritativeRegion = b.AuthoritativeRegion
 	}
 	if b.BootstrapExpect > 0 {
 		result.BootstrapExpect = b.BootstrapExpect
@@ -917,6 +1000,9 @@ func (a *ServerConfig) Merge(b *ServerConfig) *ServerConfig {
 	}
 	if b.ProtocolVersion != 0 {
 		result.ProtocolVersion = b.ProtocolVersion
+	}
+	if b.RaftProtocol != 0 {
+		result.RaftProtocol = b.RaftProtocol
 	}
 	if b.NumSchedulers != 0 {
 		result.NumSchedulers = b.NumSchedulers
@@ -951,6 +1037,15 @@ func (a *ServerConfig) Merge(b *ServerConfig) *ServerConfig {
 	}
 	if b.RejoinAfterLeave {
 		result.RejoinAfterLeave = true
+	}
+	if b.NonVotingServer {
+		result.NonVotingServer = true
+	}
+	if b.RedundancyZone != "" {
+		result.RedundancyZone = b.RedundancyZone
+	}
+	if b.UpgradeVersion != "" {
+		result.UpgradeVersion = b.UpgradeVersion
 	}
 	if b.EncryptKey != "" {
 		result.EncryptKey = b.EncryptKey
@@ -1075,6 +1170,9 @@ func (a *Telemetry) Merge(b *Telemetry) *Telemetry {
 	if b.DataDogAddr != "" {
 		result.DataDogAddr = b.DataDogAddr
 	}
+	if b.PrometheusMetrics {
+		result.PrometheusMetrics = b.PrometheusMetrics
+	}
 	if b.DisableHostname {
 		result.DisableHostname = true
 	}
@@ -1133,6 +1231,15 @@ func (a *Telemetry) Merge(b *Telemetry) *Telemetry {
 	if b.CirconusBrokerSelectTag != "" {
 		result.CirconusBrokerSelectTag = b.CirconusBrokerSelectTag
 	}
+
+	if b.DisableTaggedMetrics {
+		result.DisableTaggedMetrics = b.DisableTaggedMetrics
+	}
+
+	if b.BackwardsCompatibleMetrics {
+		result.BackwardsCompatibleMetrics = b.BackwardsCompatibleMetrics
+	}
+
 	return &result
 }
 
@@ -1180,25 +1287,6 @@ func (a *AdvertiseAddrs) Merge(b *AdvertiseAddrs) *AdvertiseAddrs {
 	}
 	if b.HTTP != "" {
 		result.HTTP = b.HTTP
-	}
-	return &result
-}
-
-// Merge merges two Atlas configurations together.
-func (a *AtlasConfig) Merge(b *AtlasConfig) *AtlasConfig {
-	result := *a
-
-	if b.Infrastructure != "" {
-		result.Infrastructure = b.Infrastructure
-	}
-	if b.Token != "" {
-		result.Token = b.Token
-	}
-	if b.Join {
-		result.Join = true
-	}
-	if b.Endpoint != "" {
-		result.Endpoint = b.Endpoint
 	}
 	return &result
 }

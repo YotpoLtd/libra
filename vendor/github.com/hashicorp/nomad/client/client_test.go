@@ -1,10 +1,7 @@
 package client
 
 import (
-	"archive/tar"
-	"bytes"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -14,23 +11,38 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashicorp/consul/lib/freeport"
 	memdb "github.com/hashicorp/go-memdb"
 	"github.com/hashicorp/nomad/client/config"
+	"github.com/hashicorp/nomad/client/driver"
 	"github.com/hashicorp/nomad/client/fingerprint"
 	"github.com/hashicorp/nomad/command/agent/consul"
 	"github.com/hashicorp/nomad/helper"
+	"github.com/hashicorp/nomad/helper/uuid"
 	"github.com/hashicorp/nomad/nomad"
 	"github.com/hashicorp/nomad/nomad/mock"
 	"github.com/hashicorp/nomad/nomad/structs"
 	nconfig "github.com/hashicorp/nomad/nomad/structs/config"
 	"github.com/hashicorp/nomad/testutil"
 	"github.com/mitchellh/hashstructure"
+	"github.com/stretchr/testify/assert"
 
 	ctestutil "github.com/hashicorp/nomad/client/testutil"
 )
 
-func getPort() int {
-	return 1030 + int(rand.Int31n(6440))
+func testACLServer(t *testing.T, cb func(*nomad.Config)) (*nomad.Server, string, *structs.ACLToken) {
+	server, addr := testServer(t, func(c *nomad.Config) {
+		c.ACLEnabled = true
+		if cb != nil {
+			cb(c)
+		}
+	})
+	token := mock.ACLManagementToken()
+	err := server.State().BootstrapACLTokens(1, 0, token)
+	if err != nil {
+		t.Fatalf("failed to bootstrap ACL token: %v", err)
+	}
+	return server, addr, token
 }
 
 func testServer(t *testing.T, cb func(*nomad.Config)) (*nomad.Server, string) {
@@ -63,13 +75,17 @@ func testServer(t *testing.T, cb func(*nomad.Config)) (*nomad.Server, string) {
 		cb(config)
 	}
 
+	// Enable raft as leader if we have bootstrap on
+	config.RaftConfig.StartAsLeader = !config.DevDisableBootstrap
+
 	for i := 10; i >= 0; i-- {
+		ports := freeport.GetT(t, 2)
 		config.RPCAddr = &net.TCPAddr{
 			IP:   []byte{127, 0, 0, 1},
-			Port: getPort(),
+			Port: ports[0],
 		}
 		config.NodeName = fmt.Sprintf("Node %d", config.RPCAddr.Port)
-		config.SerfConfig.MemberlistConfig.BindPort = getPort()
+		config.SerfConfig.MemberlistConfig.BindPort = ports[1]
 
 		// Create server
 		server, err := nomad.NewServer(config, catalog, logger)
@@ -121,6 +137,32 @@ func TestClient_StartStop(t *testing.T) {
 	client := testClient(t, nil)
 	if err := client.Shutdown(); err != nil {
 		t.Fatalf("err: %v", err)
+	}
+}
+
+// Certain labels for metrics are dependant on client initial setup. This tests
+// that the client has properly initialized before we assign values to labels
+func TestClient_BaseLabels(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+
+	client := testClient(t, nil)
+	if err := client.Shutdown(); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	// directly invoke this function, as otherwise this will fail on a CI build
+	// due to a race condition
+	client.emitStats()
+
+	baseLabels := client.baseLabels
+	assert.NotEqual(0, len(baseLabels))
+
+	nodeID := client.Node().ID
+	for _, e := range baseLabels {
+		if e.Name == "node_id" {
+			assert.Equal(nodeID, e.Value)
+		}
 	}
 }
 
@@ -184,7 +226,7 @@ func TestClient_HasNodeChanged(t *testing.T) {
 	c := testClient(t, nil)
 	defer c.Shutdown()
 
-	node := c.Node()
+	node := c.config.Node
 	attrHash, err := hashstructure.Hash(node.Attributes, nil)
 	if err != nil {
 		c.logger.Printf("[DEBUG] client: unable to calculate node attributes hash: %v", err)
@@ -209,6 +251,48 @@ func TestClient_HasNodeChanged(t *testing.T) {
 	if changed, _, newMetaHash := c.hasNodeChanged(attrHash, metaHash); !changed {
 		t.Fatalf("Expected hash change in meta map: %d vs %d", metaHash, newMetaHash)
 	}
+}
+
+func TestClient_Fingerprint_Periodic(t *testing.T) {
+	if _, ok := driver.BuiltinDrivers["mock_driver"]; !ok {
+		t.Skip(`test requires mock_driver; run with "-tags nomad_test"`)
+	}
+	t.Parallel()
+
+	// these constants are only defined when nomad_test is enabled, so these fail
+	// our linter without explicit disabling.
+	c1 := testClient(t, func(c *config.Config) {
+		c.Options = map[string]string{
+			driver.ShutdownPeriodicAfter:    "true", // nolint: varcheck
+			driver.ShutdownPeriodicDuration: "3",    // nolint: varcheck
+		}
+	})
+	defer c1.Shutdown()
+
+	node := c1.config.Node
+	mockDriverName := "driver.mock_driver"
+
+	// Ensure the mock driver is registered on the client
+	testutil.WaitForResult(func() (bool, error) {
+		mockDriverStatus := node.Attributes[mockDriverName]
+		if mockDriverStatus == "" {
+			return false, fmt.Errorf("mock driver attribute should be set on the client")
+		}
+		return true, nil
+	}, func(err error) {
+		t.Fatalf("err: %v", err)
+	})
+
+	// Ensure that the client fingerprinter eventually removes this attribute
+	testutil.WaitForResult(func() (bool, error) {
+		mockDriverStatus := node.Attributes[mockDriverName]
+		if mockDriverStatus != "" {
+			return false, fmt.Errorf("mock driver attribute should not be set on the client")
+		}
+		return true, nil
+	}, func(err error) {
+		t.Fatalf("err: %v", err)
+	})
 }
 
 func TestClient_Fingerprint_InWhitelist(t *testing.T) {
@@ -619,7 +703,6 @@ func TestClient_WatchAllocs(t *testing.T) {
 	alloc2.JobID = job.ID
 	alloc2.Job = job
 
-	// Insert at zero so they are pulled
 	state := s1.State()
 	if err := state.UpsertJob(100, job); err != nil {
 		t.Fatal(err)
@@ -643,23 +726,20 @@ func TestClient_WatchAllocs(t *testing.T) {
 	})
 
 	// Delete one allocation
-	err = state.DeleteEval(103, nil, []string{alloc1.ID})
-	if err != nil {
+	if err := state.DeleteEval(103, nil, []string{alloc1.ID}); err != nil {
 		t.Fatalf("err: %v", err)
 	}
 
 	// Update the other allocation. Have to make a copy because the allocs are
 	// shared in memory in the test and the modify index would be updated in the
 	// alloc runner.
-	alloc2_2 := new(structs.Allocation)
-	*alloc2_2 = *alloc2
+	alloc2_2 := alloc2.Copy()
 	alloc2_2.DesiredStatus = structs.AllocDesiredStatusStop
-	err = state.UpsertAllocs(104, []*structs.Allocation{alloc2_2})
-	if err != nil {
-		t.Fatalf("err: %v", err)
+	if err := state.UpsertAllocs(104, []*structs.Allocation{alloc2_2}); err != nil {
+		t.Fatalf("err upserting stopped alloc: %v", err)
 	}
 
-	// One allocations should get de-registered
+	// One allocation should get GC'd and removed
 	testutil.WaitForResult(func() (bool, error) {
 		c1.allocLock.RLock()
 		num := len(c1.allocs)
@@ -869,7 +949,7 @@ func TestClient_BlockedAllocations(t *testing.T) {
 
 	// Add a new chained alloc
 	alloc2 := alloc.Copy()
-	alloc2.ID = structs.GenerateUUID()
+	alloc2.ID = uuid.Generate()
 	alloc2.Job = alloc.Job
 	alloc2.JobID = alloc.JobID
 	alloc2.PreviousAllocation = alloc.ID
@@ -879,11 +959,14 @@ func TestClient_BlockedAllocations(t *testing.T) {
 
 	// Enusre that the chained allocation is being tracked as blocked
 	testutil.WaitForResult(func() (bool, error) {
-		alloc, ok := c1.blockedAllocations[alloc2.PreviousAllocation]
-		if ok && alloc.ID == alloc2.ID {
-			return true, nil
+		ar := c1.getAllocRunners()[alloc2.ID]
+		if ar == nil {
+			return false, fmt.Errorf("alloc 2's alloc runner does not exist")
 		}
-		return false, fmt.Errorf("no blocked allocations")
+		if !ar.IsWaiting() {
+			return false, fmt.Errorf("alloc 2 is not blocked")
+		}
+		return true, nil
 	}, func(err error) {
 		t.Fatalf("err: %v", err)
 	})
@@ -897,9 +980,13 @@ func TestClient_BlockedAllocations(t *testing.T) {
 
 	// Ensure that there are no blocked allocations
 	testutil.WaitForResult(func() (bool, error) {
-		_, ok := c1.blockedAllocations[alloc2.PreviousAllocation]
-		if ok {
-			return false, fmt.Errorf("blocked evals present")
+		for id, ar := range c1.getAllocRunners() {
+			if ar.IsWaiting() {
+				return false, fmt.Errorf("%q still blocked", id)
+			}
+			if ar.IsMigrating() {
+				return false, fmt.Errorf("%q still migrating", id)
+			}
 		}
 		return true, nil
 	}, func(err error) {
@@ -916,129 +1003,197 @@ func TestClient_BlockedAllocations(t *testing.T) {
 	}
 }
 
-func TestClient_UnarchiveAllocDir(t *testing.T) {
+func TestClient_ValidateMigrateToken_ValidToken(t *testing.T) {
 	t.Parallel()
-	dir, err := ioutil.TempDir("", "")
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	defer os.RemoveAll(dir)
+	assert := assert.New(t)
 
-	if err := os.Mkdir(filepath.Join(dir, "foo"), 0777); err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	dirInfo, err := os.Stat(filepath.Join(dir, "foo"))
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	f, err := os.Create(filepath.Join(dir, "foo", "bar"))
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if _, err := f.WriteString("foo"); err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if err := f.Chmod(0644); err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	fInfo, err := f.Stat()
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	f.Close()
-	if err := os.Symlink("bar", filepath.Join(dir, "foo", "baz")); err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	linkInfo, err := os.Lstat(filepath.Join(dir, "foo", "baz"))
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
+	c := testClient(t, func(c *config.Config) {
+		c.ACLEnabled = true
+	})
+	defer c.Shutdown()
 
-	buf := new(bytes.Buffer)
-	tw := tar.NewWriter(buf)
+	alloc := mock.Alloc()
+	validToken, err := nomad.GenerateMigrateToken(alloc.ID, c.secretNodeID())
+	assert.Nil(err)
 
-	walkFn := func(path string, fileInfo os.FileInfo, err error) error {
-		// Include the path of the file name relative to the alloc dir
-		// so that we can put the files in the right directories
-		link := ""
-		if fileInfo.Mode()&os.ModeSymlink != 0 {
-			target, err := os.Readlink(path)
-			if err != nil {
-				return fmt.Errorf("error reading symlink: %v", err)
-			}
-			link = target
-		}
-		hdr, err := tar.FileInfoHeader(fileInfo, link)
-		if err != nil {
-			return fmt.Errorf("error creating file header: %v", err)
-		}
-		hdr.Name = fileInfo.Name()
-		tw.WriteHeader(hdr)
+	assert.Equal(c.ValidateMigrateToken(alloc.ID, validToken), true)
+}
 
-		// If it's a directory or symlink we just write the header into the tar
-		if fileInfo.IsDir() || (fileInfo.Mode()&os.ModeSymlink != 0) {
-			return nil
-		}
+func TestClient_ValidateMigrateToken_InvalidToken(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
 
-		// Write the file into the archive
-		file, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer file.Close()
+	c := testClient(t, func(c *config.Config) {
+		c.ACLEnabled = true
+	})
+	defer c.Shutdown()
 
-		if _, err := io.Copy(tw, file); err != nil {
-			return err
-		}
+	assert.Equal(c.ValidateMigrateToken("", ""), false)
 
-		return nil
-	}
+	alloc := mock.Alloc()
+	assert.Equal(c.ValidateMigrateToken(alloc.ID, alloc.ID), false)
+	assert.Equal(c.ValidateMigrateToken(alloc.ID, ""), false)
+}
 
-	if err := filepath.Walk(dir, walkFn); err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	tw.Close()
+func TestClient_ValidateMigrateToken_ACLDisabled(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
 
-	dir1, err := ioutil.TempDir("", "")
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	defer os.RemoveAll(dir1)
+	c := testClient(t, func(c *config.Config) {})
+	defer c.Shutdown()
+
+	assert.Equal(c.ValidateMigrateToken("", ""), true)
+}
+
+func TestClient_ReloadTLS_UpgradePlaintextToTLS(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+
+	s1, addr := testServer(t, func(c *nomad.Config) {
+		c.Region = "regionFoo"
+	})
+	defer s1.Shutdown()
+	testutil.WaitForLeader(t, s1.RPC)
+
+	const (
+		cafile  = "../helper/tlsutil/testdata/ca.pem"
+		foocert = "../helper/tlsutil/testdata/nomad-foo.pem"
+		fookey  = "../helper/tlsutil/testdata/nomad-foo-key.pem"
+	)
 
 	c1 := testClient(t, func(c *config.Config) {
-		c.RPCHandler = nil
+		c.Servers = []string{addr}
 	})
 	defer c1.Shutdown()
 
-	rc := ioutil.NopCloser(buf)
+	// Registering a node over plaintext should succeed
+	{
+		req := structs.NodeSpecificRequest{
+			NodeID:       c1.Node().ID,
+			QueryOptions: structs.QueryOptions{Region: "regionFoo"},
+		}
 
-	c1.migratingAllocs["123"] = newMigrateAllocCtrl(mock.Alloc())
-	if err := c1.unarchiveAllocDir(rc, "123", dir1); err != nil {
-		t.Fatalf("err: %v", err)
-	}
-
-	// Ensure foo is present
-	fi, err := os.Stat(filepath.Join(dir1, "foo"))
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if fi.Mode() != dirInfo.Mode() {
-		t.Fatalf("mode: %v", fi.Mode())
-	}
-
-	fi1, err := os.Stat(filepath.Join(dir1, "bar"))
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if fi1.Mode() != fInfo.Mode() {
-		t.Fatalf("mode: %v", fi1.Mode())
+		testutil.WaitForResult(func() (bool, error) {
+			var out structs.SingleNodeResponse
+			err := c1.RPC("Node.GetNode", &req, &out)
+			if err != nil {
+				return false, fmt.Errorf("client RPC failed when it should have succeeded:\n%+v", err)
+			}
+			return true, nil
+		},
+			func(err error) {
+				t.Fatalf(err.Error())
+			},
+		)
 	}
 
-	fi2, err := os.Lstat(filepath.Join(dir1, "baz"))
-	if err != nil {
-		t.Fatalf("err: %v", err)
+	newConfig := &nconfig.TLSConfig{
+		EnableHTTP:           true,
+		EnableRPC:            true,
+		VerifyServerHostname: true,
+		CAFile:               cafile,
+		CertFile:             foocert,
+		KeyFile:              fookey,
 	}
-	if fi2.Mode() != linkInfo.Mode() {
-		t.Fatalf("mode: %v", fi2.Mode())
+
+	err := c1.reloadTLSConnections(newConfig)
+	assert.Nil(err)
+
+	// Registering a node over plaintext should fail after the node has upgraded
+	// to TLS
+	{
+		req := structs.NodeSpecificRequest{
+			NodeID:       c1.Node().ID,
+			QueryOptions: structs.QueryOptions{Region: "regionFoo"},
+		}
+		testutil.WaitForResult(func() (bool, error) {
+			var out structs.SingleNodeResponse
+			err := c1.RPC("Node.GetNode", &req, &out)
+			if err == nil {
+				return false, fmt.Errorf("client RPC succeeded when it should have failed:\n%+v", err)
+			}
+			return true, nil
+		},
+			func(err error) {
+				t.Fatalf(err.Error())
+			},
+		)
+	}
+}
+
+func TestClient_ReloadTLS_DowngradeTLSToPlaintext(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+
+	s1, addr := testServer(t, func(c *nomad.Config) {
+		c.Region = "regionFoo"
+	})
+	defer s1.Shutdown()
+	testutil.WaitForLeader(t, s1.RPC)
+
+	const (
+		cafile  = "../helper/tlsutil/testdata/ca.pem"
+		foocert = "../helper/tlsutil/testdata/nomad-foo.pem"
+		fookey  = "../helper/tlsutil/testdata/nomad-foo-key.pem"
+	)
+
+	c1 := testClient(t, func(c *config.Config) {
+		c.Servers = []string{addr}
+		c.TLSConfig = &nconfig.TLSConfig{
+			EnableHTTP:           true,
+			EnableRPC:            true,
+			VerifyServerHostname: true,
+			CAFile:               cafile,
+			CertFile:             foocert,
+			KeyFile:              fookey,
+		}
+	})
+	defer c1.Shutdown()
+
+	// assert that when one node is running in encrypted mode, a RPC request to a
+	// node running in plaintext mode should fail
+	{
+		req := structs.NodeSpecificRequest{
+			NodeID:       c1.Node().ID,
+			QueryOptions: structs.QueryOptions{Region: "regionFoo"},
+		}
+		testutil.WaitForResult(func() (bool, error) {
+			var out structs.SingleNodeResponse
+			err := c1.RPC("Node.GetNode", &req, &out)
+			if err == nil {
+				return false, fmt.Errorf("client RPC succeeded when it should have failed :\n%+v", err)
+			}
+			return true, nil
+		},
+			func(err error) {
+				t.Fatalf(err.Error())
+			},
+		)
+	}
+
+	newConfig := &nconfig.TLSConfig{}
+
+	err := c1.reloadTLSConnections(newConfig)
+	assert.Nil(err)
+
+	// assert that when both nodes are in plaintext mode, a RPC request should
+	// succeed
+	{
+		req := structs.NodeSpecificRequest{
+			NodeID:       c1.Node().ID,
+			QueryOptions: structs.QueryOptions{Region: "regionFoo"},
+		}
+		testutil.WaitForResult(func() (bool, error) {
+			var out structs.SingleNodeResponse
+			err := c1.RPC("Node.GetNode", &req, &out)
+			if err != nil {
+				return false, fmt.Errorf("client RPC failed when it should have succeeded:\n%+v", err)
+			}
+			return true, nil
+		},
+			func(err error) {
+				t.Fatalf(err.Error())
+			},
+		)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	tomb "gopkg.in/tomb.v1"
@@ -20,11 +21,6 @@ import (
 )
 
 var (
-	osMountSharedDirSupport = map[string]bool{
-		"darwin": true,
-		"linux":  true,
-	}
-
 	t1 = &structs.Task{
 		Name:   "web",
 		Driver: "exec",
@@ -379,6 +375,10 @@ func TestAllocDir_SplitPath(t *testing.T) {
 }
 
 func TestAllocDir_CreateDir(t *testing.T) {
+	if syscall.Geteuid() != 0 {
+		t.Skip("Must be root to run test")
+	}
+
 	dir, err := ioutil.TempDir("", "tmpdirtest")
 	if err != nil {
 		t.Fatalf("err: %v", err)

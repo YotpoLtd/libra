@@ -48,49 +48,31 @@ func (a *Allocations) Info(allocID string, q *QueryOptions) (*Allocation, *Query
 }
 
 func (a *Allocations) Stats(alloc *Allocation, q *QueryOptions) (*AllocResourceUsage, error) {
-	node, _, err := a.client.Nodes().Info(alloc.NodeID, q)
+	nodeClient, err := a.client.GetNodeClient(alloc.NodeID, q)
 	if err != nil {
 		return nil, err
 	}
-	if node.Status == "down" {
-		return nil, NodeDownErr
-	}
-	if node.HTTPAddr == "" {
-		return nil, fmt.Errorf("http addr of the node where alloc %q is running is not advertised", alloc.ID)
-	}
-	client, err := NewClient(a.client.config.CopyConfig(node.HTTPAddr, node.TLSEnabled))
-	if err != nil {
-		return nil, err
-	}
+
 	var resp AllocResourceUsage
-	_, err = client.query("/v1/client/allocation/"+alloc.ID+"/stats", &resp, nil)
+	_, err = nodeClient.query("/v1/client/allocation/"+alloc.ID+"/stats", &resp, nil)
 	return &resp, err
 }
 
 func (a *Allocations) GC(alloc *Allocation, q *QueryOptions) error {
-	node, _, err := a.client.Nodes().Info(alloc.NodeID, q)
-	if err != nil {
-		return err
-	}
-	if node.Status == "down" {
-		return NodeDownErr
-	}
-	if node.HTTPAddr == "" {
-		return fmt.Errorf("http addr of the node where alloc %q is running is not advertised", alloc.ID)
-	}
-	client, err := NewClient(a.client.config.CopyConfig(node.HTTPAddr, node.TLSEnabled))
+	nodeClient, err := a.client.GetNodeClient(alloc.NodeID, q)
 	if err != nil {
 		return err
 	}
 
 	var resp struct{}
-	_, err = client.query("/v1/client/allocation"+alloc.ID+"/gc", &resp, nil)
+	_, err = nodeClient.query("/v1/client/allocation/"+alloc.ID+"/gc", &resp, nil)
 	return err
 }
 
 // Allocation is used for serialization of allocations.
 type Allocation struct {
 	ID                 string
+	Namespace          string
 	EvalID             string
 	Name               string
 	NodeID             string
@@ -109,10 +91,12 @@ type Allocation struct {
 	DeploymentID       string
 	DeploymentStatus   *AllocDeploymentStatus
 	PreviousAllocation string
+	NextAllocation     string
 	CreateIndex        uint64
 	ModifyIndex        uint64
 	AllocModifyIndex   uint64
 	CreateTime         int64
+	ModifyTime         int64
 }
 
 // AllocationMetric is used to deserialize allocation metrics.
@@ -125,6 +109,7 @@ type AllocationMetric struct {
 	NodesExhausted     int
 	ClassExhausted     map[string]int
 	DimensionExhausted map[string]int
+	QuotaExhausted     []string
 	Scores             map[string]float64
 	AllocationTime     time.Duration
 	CoalescedFailures  int
@@ -149,11 +134,12 @@ type AllocationListStub struct {
 	CreateIndex        uint64
 	ModifyIndex        uint64
 	CreateTime         int64
+	ModifyTime         int64
 }
 
 // AllocDeploymentStatus captures the status of the allocation as part of the
 // deployment. This can include things like if the allocation has been marked as
-// heatlhy.
+// healthy.
 type AllocDeploymentStatus struct {
 	Healthy     *bool
 	ModifyIndex uint64

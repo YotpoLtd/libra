@@ -3,7 +3,6 @@ package api
 import (
 	"fmt"
 	"path"
-
 	"path/filepath"
 	"strings"
 	"time"
@@ -79,6 +78,71 @@ func (r *RestartPolicy) Merge(rp *RestartPolicy) {
 	}
 }
 
+// CheckRestart describes if and when a task should be restarted based on
+// failing health checks.
+type CheckRestart struct {
+	Limit          int            `mapstructure:"limit"`
+	Grace          *time.Duration `mapstructure:"grace"`
+	IgnoreWarnings bool           `mapstructure:"ignore_warnings"`
+}
+
+// Canonicalize CheckRestart fields if not nil.
+func (c *CheckRestart) Canonicalize() {
+	if c == nil {
+		return
+	}
+
+	if c.Grace == nil {
+		c.Grace = helper.TimeToPtr(1 * time.Second)
+	}
+}
+
+// Copy returns a copy of CheckRestart or nil if unset.
+func (c *CheckRestart) Copy() *CheckRestart {
+	if c == nil {
+		return nil
+	}
+
+	nc := new(CheckRestart)
+	nc.Limit = c.Limit
+	if c.Grace != nil {
+		g := *c.Grace
+		nc.Grace = &g
+	}
+	nc.IgnoreWarnings = c.IgnoreWarnings
+	return nc
+}
+
+// Merge values from other CheckRestart over default values on this
+// CheckRestart and return merged copy.
+func (c *CheckRestart) Merge(o *CheckRestart) *CheckRestart {
+	if c == nil {
+		// Just return other
+		return o
+	}
+
+	nc := c.Copy()
+
+	if o == nil {
+		// Nothing to merge
+		return nc
+	}
+
+	if o.Limit > 0 {
+		nc.Limit = o.Limit
+	}
+
+	if o.Grace != nil {
+		nc.Grace = o.Grace
+	}
+
+	if o.IgnoreWarnings {
+		nc.IgnoreWarnings = o.IgnoreWarnings
+	}
+
+	return nc
+}
+
 // The ServiceCheck data model represents the consul health check that
 // Nomad registers for a Task
 type ServiceCheck struct {
@@ -90,20 +154,25 @@ type ServiceCheck struct {
 	Path          string
 	Protocol      string
 	PortLabel     string `mapstructure:"port"`
+	AddressMode   string `mapstructure:"address_mode"`
 	Interval      time.Duration
 	Timeout       time.Duration
 	InitialStatus string `mapstructure:"initial_status"`
 	TLSSkipVerify bool   `mapstructure:"tls_skip_verify"`
+	Header        map[string][]string
+	Method        string
+	CheckRestart  *CheckRestart `mapstructure:"check_restart"`
 }
 
 // The Service model represents a Consul service definition
 type Service struct {
-	Id          string
-	Name        string
-	Tags        []string
-	PortLabel   string `mapstructure:"port"`
-	AddressMode string `mapstructure:"address_mode"`
-	Checks      []ServiceCheck
+	Id           string
+	Name         string
+	Tags         []string
+	PortLabel    string `mapstructure:"port"`
+	AddressMode  string `mapstructure:"address_mode"`
+	Checks       []ServiceCheck
+	CheckRestart *CheckRestart `mapstructure:"check_restart"`
 }
 
 func (s *Service) Canonicalize(t *Task, tg *TaskGroup, job *Job) {
@@ -114,6 +183,13 @@ func (s *Service) Canonicalize(t *Task, tg *TaskGroup, job *Job) {
 	// Default to AddressModeAuto
 	if s.AddressMode == "" {
 		s.AddressMode = "auto"
+	}
+
+	// Canonicallize CheckRestart on Checks and merge Service.CheckRestart
+	// into each check.
+	for i, check := range s.Checks {
+		s.Checks[i].CheckRestart = s.CheckRestart.Merge(check.CheckRestart)
+		s.Checks[i].CheckRestart.Canonicalize()
 	}
 }
 
@@ -186,8 +262,8 @@ func (g *TaskGroup) Canonicalize(job *Job) {
 		jc := job.Update.Copy()
 		jc.Merge(g.Update)
 		g.Update = jc
-	} else if ju {
-		// Inherit the jobs
+	} else if ju && !job.Update.Empty() {
+		// Inherit the jobs as long as it is non-empty.
 		jc := job.Update.Copy()
 		g.Update = jc
 	}
@@ -292,14 +368,15 @@ type Task struct {
 	Templates       []*Template
 	DispatchPayload *DispatchPayloadConfig
 	Leader          bool
+	ShutdownDelay   time.Duration `mapstructure:"shutdown_delay"`
+	KillSignal      string        `mapstructure:"kill_signal"`
 }
 
 func (t *Task) Canonicalize(tg *TaskGroup, job *Job) {
-	min := MinResources()
-	min.Merge(t.Resources)
-	min.Canonicalize()
-	t.Resources = min
-
+	if t.Resources == nil {
+		t.Resources = &Resources{}
+	}
+	t.Resources.Canonicalize()
 	if t.KillTimeout == nil {
 		t.KillTimeout = helper.TimeToPtr(5 * time.Second)
 	}
@@ -364,6 +441,7 @@ type Template struct {
 	LeftDelim    *string        `mapstructure:"left_delimiter"`
 	RightDelim   *string        `mapstructure:"right_delimiter"`
 	Envvars      *bool          `mapstructure:"env"`
+	VaultGrace   *time.Duration `mapstructure:"vault_grace"`
 }
 
 func (tmpl *Template) Canonicalize() {
@@ -403,6 +481,9 @@ func (tmpl *Template) Canonicalize() {
 	}
 	if tmpl.Envvars == nil {
 		tmpl.Envvars = helper.BoolToPtr(false)
+	}
+	if tmpl.VaultGrace == nil {
+		tmpl.VaultGrace = helper.TimeToPtr(15 * time.Second)
 	}
 }
 
@@ -507,8 +588,11 @@ const (
 // TaskEvent is an event that effects the state of a task and contains meta-data
 // appropriate to the events type.
 type TaskEvent struct {
-	Type             string
-	Time             int64
+	Type           string
+	Time           int64
+	DisplayMessage string
+	Details        map[string]string
+	// DEPRECATION NOTICE: The following fields are all deprecated. see TaskEvent struct in structs.go for details.
 	FailsTask        bool
 	RestartReason    string
 	SetupError       string
@@ -529,4 +613,5 @@ type TaskEvent struct {
 	VaultError       string
 	TaskSignalReason string
 	TaskSignal       string
+	GenericSource    string
 }

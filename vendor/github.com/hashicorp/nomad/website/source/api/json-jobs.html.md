@@ -1,7 +1,7 @@
 ---
 layout: api
 page_title: JSON Job Specification - HTTP API
-sidebar_current: api-jobs
+sidebar_current: api-json-jobs
 description: |-
   Jobs can also be specified via the HTTP API using a JSON format. This guide
   discusses the job specification in JSON format.
@@ -18,7 +18,7 @@ $ nomad run -output my-job.nomad
 
 ## Syntax
 
-Below is the JSON representation of the job outputed by `$ nomad init`:
+Below is the JSON representation of the job outputted by `$ nomad init`:
 
 ```json
 {
@@ -45,7 +45,7 @@ Below is the JSON representation of the job outputed by `$ nomad init`:
                 },
                 "Services": [{
                     "Id": "",
-                    "Name": "global-redis-check",
+                    "Name": "redis-cache",
                     "Tags": [
                         "global",
                         "cache"
@@ -58,13 +58,20 @@ Below is the JSON representation of the job outputed by `$ nomad init`:
                         "Type": "tcp",
                         "Command": "",
                         "Args": null,
+                        "Header": {},
+                        "Method": "",
                         "Path": "",
                         "Protocol": "",
                         "PortLabel": "",
                         "Interval": 10000000000,
                         "Timeout": 2000000000,
                         "InitialStatus": "",
-                        "TLSSkipVerify": false
+                        "TLSSkipVerify": false,
+                        "CheckRestart": {
+                            "Limit": 3,
+                            "Grace": 30000000000,
+                            "IgnoreWarnings": false
+                        }
                     }]
                 }],
                 "Resources": {
@@ -107,7 +114,7 @@ Below is the JSON representation of the job outputed by `$ nomad init`:
 The example JSON could be submitted as a job using the following:
 
 ```text
-$ curl -XPUT @d example.json http://127.0.0.1:4646/v1/job/example
+$ curl -XPUT -d @example.json http://127.0.0.1:4646/v1/job/example
 {
   "EvalID": "5d6ded54-0b2a-8858-6583-be5f476dec9d",
   "EvalCreateIndex": 12,
@@ -128,9 +135,11 @@ their default values if any for each type of object.
 
 The `Job` object supports the following keys:
 
-- `AllAtOnce` - Controls if the entire set of tasks in the job must
-  be placed atomically or if they can be scheduled incrementally.
-  This should only be used for special circumstances. Defaults to `false`.
+- `AllAtOnce` - Controls whether the scheduler can make partial placements if
+  optimistic scheduling resulted in an oversubscribed node. This does not
+  control whether all allocations for the job, where all would be the desired
+  count for each task group, must be placed atomically. This should only be
+  used for special circumstances. Defaults to `false`.
 
 - `Constraints` - A list to define additional constraints where a job can be
   run. See the constraint reference for more details.
@@ -142,6 +151,9 @@ The `Job` object supports the following keys:
   reference for more details.
 
 - `Meta` - Annotates the job with opaque metadata.
+
+- `Namespace` - The namespace to execute the job in, defaults to "default".
+  Values other than default are not allowed in non-Enterprise versions of Nomad.
 
 - `ParameterizedJob` - Specifies the job as a parameterized job such that it can
   be dispatched against. The `ParamaterizedJob` object supports the following
@@ -186,7 +198,7 @@ The `Job` object supports the following keys:
     - `Enabled` - `Enabled` determines whether the periodic job will spawn child
     jobs.
 
-    - `time_zone` - Specifies the time zone to evaluate the next launch interval
+    - `TimeZone` - Specifies the time zone to evaluate the next launch interval
       against. This is useful when wanting to account for day light savings in
       various time zones. The time zone must be parsable by Golang's
       [LoadLocation](https://golang.org/pkg/time/#LoadLocation). The default is
@@ -210,7 +222,8 @@ The `Job` object supports the following keys:
     ```json
     {
       "Periodic": {
-          "Spec": "*/15 - *"
+          "Spec": "*/15 - *",
+          "TimeZone": "Europe/Berlin",
           "SpecType": "cron",
           "Enabled": true,
           "ProhibitOverlap": true
@@ -287,13 +300,17 @@ The `Task` object supports the following keys:
     }
     ```
 
+- `KillSignal` - Specifies a configurable kill signal for a task, where the
+  default is SIGINT. Note that this is only supported for drivers which accept
+  sending signals (currently `docker`, `exec`, `raw_exec`, and `java` drivers).
+
 - `KillTimeout` - `KillTimeout` is a time duration in nanoseconds. It can be
   used to configure the time between signaling a task it will be killed and
   actually killing it. Drivers first sends a task the `SIGINT` signal and then
   sends `SIGTERM` if the task doesn't die after the `KillTimeout` duration has
   elapsed. The default `KillTimeout` is 5 seconds.
 
-- `leader` - Specifies whether the task is the leader task of the task group. If
+- `Leader` - Specifies whether the task is the leader task of the task group. If
   set to true, when the leader task completes, all other tasks within the task
   group will be gracefully shutdown.
 
@@ -333,6 +350,23 @@ The `Task` object supports the following keys:
        defined in the resources block.  This could be a label of either a
        dynamic or a static port.
 
+     - `AddressMode`: Specifies what address (host or driver-specific) this
+       service should advertise.  This setting is supported in Docker since
+       Nomad 0.6 and rkt since Nomad 0.7. Valid options are:
+
+       - `auto` - Allows the driver to determine whether the host or driver
+         address should be used. Defaults to `host` and only implemented by
+	 Docker. If you use a Docker network plugin such as weave, Docker will
+         automatically use its address.
+
+       - `driver` - Use the IP specified by the driver, and the port specified
+         in a port map. A numeric port may be specified since port maps aren't
+	 required by all network plugins. Useful for advertising SDN and
+         overlay network addresses. Task will fail if driver network cannot be
+         determined. Only implemented for Docker and rkt.
+
+       - `host` - Use the host IP and port.
+
      - `Checks`: `Checks` is an array of check objects. A check object defines a
        health check associated with the service. Nomad supports the `script`,
        `http` and `tcp` Consul Checks. Script checks are not supported for the
@@ -344,16 +378,42 @@ The `Task` object supports the following keys:
 
          - `Name`: The name of the health check.
 
+	 - `AddressMode`: Same as `AddressMode` on `Service`.  Unlike services,
+	   checks do not have an `auto` address mode as there's no way for
+	   Nomad to know which is the best address to use for checks. Consul
+	   needs access to the address for any HTTP or TCP checks. Added in
+	   Nomad 0.7.1. Unlike `PortLabel`, this setting is *not* inherited
+           from the `Service`.
+
+	 - `PortLabel`: Specifies the label of the port on which the check will
+	   be performed. Note this is the _label_ of the port and not the port
+	   number unless `AddressMode: "driver"`. The port label must match one
+	   defined in the Network stanza. If a port value was declared on the
+	   `Service`, this will inherit from that value if not supplied. If
+	   supplied, this value takes precedence over the `Service.PortLabel`
+	   value. This is useful for services which operate on multiple ports.
+	  `http` and `tcp` checks require a port while `script` checks do not.
+	  Checks will use the host IP and ports by default. In Nomad 0.7.1 or
+	  later numeric ports may be used if `AddressMode: "driver"` is set on
+          the check.
+
+	 - `Header`: Headers for HTTP checks. Should be an object where the
+	   values are an array of values. Headers will be written once for each
+           value.
+
          - `Interval`: This indicates the frequency of the health checks that
            Consul will perform.
 
          - `Timeout`: This indicates how long Consul will wait for a health
            check query to succeed.
 
+         - `Method`: The HTTP method to use for HTTP checks. Defaults to GET.
+
          - `Path`: The path of the HTTP endpoint which Consul will query to query
            the health of a service if the type of the check is `http`. Nomad
            will add the IP of the service and the port, users are only required
-           to add the relative URL of the health check endpoint.
+           to add the relative URL of the health check endpoint. Absolute paths
+           are not allowed.
 
          - `Protocol`: This indicates the protocol for the HTTP checks. Valid
            options are `http` and `https`. We default it to `http`.
@@ -366,6 +426,26 @@ The `Task` object supports the following keys:
 
 	 - `TLSSkipVerify`: If true, Consul will not attempt to verify the
 	   certificate when performing HTTPS checks. Requires Consul >= 0.7.2.
+
+	   - `CheckRestart`: `CheckRestart` is an object which enables
+	     restarting of tasks based upon Consul health checks.
+
+	     - `Limit`: The number of unhealthy checks allowed before the
+	       service is restarted. Defaults to `0` which disables
+               health-based restarts.
+
+	     - `Grace`: The duration to wait after a task starts or restarts
+	       before counting unhealthy checks count against the limit.
+               Defaults to "1s".
+
+	     - `IgnoreWarnings`: Treat checks that are warning as passing.
+	       Defaults to false which means warnings are considered unhealthy.
+
+- `ShutdownDelay` - Specifies the duration to wait when killing a task between
+  removing it from Consul and sending it a shutdown signal. Ideally services
+  would fail healthchecks once they receive a shutdown signal. Alternatively
+  `ShutdownDelay` may be set to give in flight requests time to complete before
+  shutting down.
 
 - `Templates` - Specifies the set of [`Template`](#template) objects to render for the task.
   Templates can be used to inject both static and dynamic configuration with
@@ -525,7 +605,7 @@ The `Constraint` object supports the following keys:
   - `set_contains` - Allows the `RTarget` to be a comma separated list of values
     that should be contained in the LTarget's value.
 
-  - `distinct_host` - If set, the scheduler will not co-locate any task groups on the same
+  - `distinct_hosts` - If set, the scheduler will not co-locate any task groups on the same
         machine. This can be specified as a job constraint which applies the
         constraint to all task groups in the job, or as a task group constraint which
         scopes the effect to just that group. The constraint may not be
@@ -736,6 +816,14 @@ README][ct].
   splay value before invoking the change mode. Should be specified in
   nanoseconds.
 
+- `VaultGrace` - Specifies the grace period between lease renewal and secret
+  re-acquisition. When renewing a secret, if the remaining lease is less than or
+  equal to the configured grace, the template will request a new credential.
+  This prevents Vault from revoking the secret at its expiration and the task
+  having a stale secret. If the grace is set to a value that is higher than your
+  default TTL or max TTL, the template will always read a new secret. If the
+  task defines several templates, the `vault_grace` will be set to the lowest
+  value across all the templates.
 
 ```json
 {

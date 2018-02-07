@@ -39,11 +39,11 @@ The key features of Nomad are:
   optimistic concurrency allowing all servers to make scheduling decisions to
   maximize throughput.
 
-* **HashiCorp Ecosystem**: Nomad integrates with the entire HashiCorp
-  ecosystem of tools. Along with all HashiCorp tools, Nomad is designed
-  in the unix philosophy of doing something specific and doing it well.
-  Nomad integrates with tools like Packer, Consul, and Terraform to support
-  building artifacts, service discovery, monitoring and capacity management.
+* **HashiCorp Ecosystem**: HashiCorp Ecosystem: Nomad integrates with the 
+entire HashiCorp ecosystem of tools. Like all HashiCorp tools, Nomad follows 
+the UNIX design philosophy of doing something specific and doing it well. 
+Nomad integrates with Terraform, Consul, and Vault for provisioning, service 
+discovery, and secrets management.
 
 For more information, see the [introduction section](https://www.nomadproject.io/intro)
 of the Nomad website.
@@ -58,7 +58,7 @@ Developing Nomad
 
 If you wish to work on Nomad itself or any of its built-in systems,
 you will first need [Go](https://www.golang.org) installed on your
-machine (version 1.8+ is *required*).
+machine (version 1.9+ is *required*).
 
 **Developing with Vagrant**
 There is an included Vagrantfile that can help bootstrap the process. The
@@ -102,16 +102,36 @@ Nomad binary in the `bin` and `$GOPATH/bin` folders:
 
 ```sh
 $ make dev
+```
+
+Optionally run Consul to enable service discovery and health checks:
+
+```sh
+$ sudo consul agent -dev
+```
+
+And finally start the nomad agent:
+
+```sh
+$ sudo bin/nomad agent -dev
+```
+
+If the Nomad UI is desired in the development version, run `make dev-ui`. This will build the UI from source and compile it into the dev binary.
+
+```sh
+$ make dev-ui
 ...
 $ bin/nomad
 ...
 ```
 
-To cross-compile Nomad, run `make bin`. This will compile Nomad for multiple
+**Note:** Building the Nomad UI from source requires Node, Yarn, and Ember CLI. These tools are already in the Vagrant VM. Read the [UI README](https://github.com/hashicorp/nomad/blob/master/ui/README.md) for more info.
+
+To cross-compile Nomad, run `make release`. This will compile Nomad for multiple
 platforms and place the resulting binaries into the `./pkg` directory:
 
 ```sh
-$ make bin
+$ make release
 ...
 $ ls ./pkg
 ...

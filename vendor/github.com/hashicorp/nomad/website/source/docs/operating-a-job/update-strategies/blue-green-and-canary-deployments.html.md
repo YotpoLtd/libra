@@ -39,16 +39,16 @@ job "docs" {
   group "api" {
     count = 5
 
+    update {
+      max_parallel     = 1
+      canary           = 5
+      min_healthy_time = "30s"
+      healthy_deadline = "10m"
+      auto_revert      = true
+    }
+
     task "api-server" {
       driver = "docker"
-
-      update {
-        max_parallel     = 1
-        canary           = 5
-        min_healthy_time = "30s"
-        healthy_deadline = "10m"
-        auto_revert      = true
-      }
 
       config {
         image = "api-server:1.3"
@@ -153,7 +153,7 @@ fail the deployment.
 ### Promoting the Deployment
 
 After deploying the new image along side the old version we have determined it
-is functioning properly and we want to transistion fully to the new version.
+is functioning properly and we want to transition fully to the new version.
 Doing so is as simple as promoting the deployment:
 
 ```text
@@ -299,16 +299,16 @@ job "docs" {
   group "api" {
     count = 5
 
+    update {
+      max_parallel     = 1
+      canary           = 1
+      min_healthy_time = "30s"
+      healthy_deadline = "10m"
+      auto_revert      = true
+    }
+
     task "api-server" {
       driver = "docker"
-
-      update {
-        max_parallel     = 1
-        canary           = 1
-        min_healthy_time = "30s"
-        healthy_deadline = "10m"
-        auto_revert      = true
-      }
 
       config {
         image = "api-server:1.3"

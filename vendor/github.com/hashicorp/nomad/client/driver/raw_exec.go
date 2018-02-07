@@ -11,7 +11,6 @@ import (
 
 	"github.com/hashicorp/go-plugin"
 	"github.com/hashicorp/nomad/client/allocdir"
-	"github.com/hashicorp/nomad/client/config"
 	"github.com/hashicorp/nomad/client/driver/env"
 	"github.com/hashicorp/nomad/client/driver/executor"
 	dstructs "github.com/hashicorp/nomad/client/driver/structs"
@@ -64,11 +63,11 @@ func (d *RawExecDriver) Validate(config map[string]interface{}) error {
 	fd := &fields.FieldData{
 		Raw: config,
 		Schema: map[string]*fields.FieldSchema{
-			"command": &fields.FieldSchema{
+			"command": {
 				Type:     fields.TypeString,
 				Required: true,
 			},
-			"args": &fields.FieldSchema{
+			"args": {
 				Type: fields.TypeArray,
 			},
 		},
@@ -92,18 +91,19 @@ func (d *RawExecDriver) FSIsolation() cstructs.FSIsolation {
 	return cstructs.FSIsolationNone
 }
 
-func (d *RawExecDriver) Fingerprint(cfg *config.Config, node *structs.Node) (bool, error) {
+func (d *RawExecDriver) Fingerprint(req *cstructs.FingerprintRequest, resp *cstructs.FingerprintResponse) error {
 	// Check that the user has explicitly enabled this executor.
-	enabled := cfg.ReadBoolDefault(rawExecConfigOption, false)
+	enabled := req.Config.ReadBoolDefault(rawExecConfigOption, false)
 
-	if enabled || cfg.DevMode {
+	if enabled || req.Config.DevMode {
 		d.logger.Printf("[WARN] driver.raw_exec: raw exec is enabled. Only enable if needed")
-		node.Attributes[rawExecDriverAttr] = "1"
-		return true, nil
+		resp.AddAttribute(rawExecDriverAttr, "1")
+		resp.Detected = true
+		return nil
 	}
 
-	delete(node.Attributes, rawExecDriverAttr)
-	return false, nil
+	resp.RemoveAttribute(rawExecDriverAttr)
+	return nil
 }
 
 func (d *RawExecDriver) Prestart(*ExecContext, *structs.Task) (*PrestartResponse, error) {
@@ -135,7 +135,6 @@ func (d *RawExecDriver) Start(ctx *ExecContext, task *structs.Task) (*StartRespo
 	executorCtx := &executor.ExecutorContext{
 		TaskEnv: ctx.TaskEnv,
 		Driver:  "raw_exec",
-		AllocID: d.DriverContext.allocID,
 		Task:    task,
 		TaskDir: ctx.TaskDir.Dir,
 		LogDir:  ctx.TaskDir.LogDir,
@@ -145,10 +144,16 @@ func (d *RawExecDriver) Start(ctx *ExecContext, task *structs.Task) (*StartRespo
 		return nil, fmt.Errorf("failed to set executor context: %v", err)
 	}
 
+	taskKillSignal, err := getTaskKillSignal(task.KillSignal)
+	if err != nil {
+		return nil, err
+	}
+
 	execCmd := &executor.ExecCommand{
-		Cmd:  command,
-		Args: driverConfig.Args,
-		User: task.User,
+		Cmd:            command,
+		Args:           driverConfig.Args,
+		User:           task.User,
+		TaskKillSignal: taskKillSignal,
 	}
 	ps, err := exec.LaunchCmd(execCmd)
 	if err != nil {
@@ -165,7 +170,7 @@ func (d *RawExecDriver) Start(ctx *ExecContext, task *structs.Task) (*StartRespo
 		userPid:        ps.Pid,
 		killTimeout:    GetKillTimeout(task.KillTimeout, maxKill),
 		maxKillTimeout: maxKill,
-		version:        d.config.Version,
+		version:        d.config.Version.VersionNumber(),
 		logger:         d.logger,
 		doneCh:         make(chan struct{}),
 		waitCh:         make(chan *dstructs.WaitResult, 1),

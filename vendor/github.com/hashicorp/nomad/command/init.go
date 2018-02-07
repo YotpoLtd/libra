@@ -265,7 +265,7 @@ job "example" {
       #   }
       # }
 
-      # The "logs" stana instructs the Nomad client on how many log files and
+      # The "logs" stanza instructs the Nomad client on how many log files and
       # the maximum size of those logs files to retain. Logging is enabled by
       # default, but the "logs" stanza allows for finer-grained control over
       # the log rotation and storage configuration.
@@ -310,7 +310,7 @@ job "example" {
       #     https://www.nomadproject.io/docs/job-specification/service.html
       #
       service {
-        name = "global-redis-check"
+        name = "redis-cache"
         tags = ["global", "cache"]
         port = "db"
         check {

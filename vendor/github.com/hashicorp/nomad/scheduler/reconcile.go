@@ -37,7 +37,7 @@ type allocReconciler struct {
 	job *structs.Job
 
 	// jobID is the ID of the job being operated on. The job may be nil if it is
-	// being stopped so we require this seperately.
+	// being stopped so we require this separately.
 	jobID string
 
 	// oldDeployment is the last deployment for the job
@@ -296,6 +296,10 @@ func (a *allocReconciler) computeGroup(group string, all allocSet) bool {
 		}
 	}
 
+	// Filter batch allocations that do not need to be considered.
+	all, ignore := a.batchFiltration(all)
+	desiredChanges.Ignore += uint64(len(ignore))
+
 	canaries, all := a.handleGroupCanaries(all, desiredChanges)
 
 	// Determine what set of allocations are on tainted nodes
@@ -365,13 +369,32 @@ func (a *allocReconciler) computeGroup(group string, all allocSet) bool {
 		dstate.DesiredTotal += len(place)
 	}
 
-	if !a.deploymentPaused && !a.deploymentFailed && !canaryState {
-		// Place all new allocations
+	// deploymentPlaceReady tracks whether the deployment is in a state where
+	// placements can be made without any other consideration.
+	deploymentPlaceReady := !a.deploymentPaused && !a.deploymentFailed && !canaryState
+
+	if deploymentPlaceReady {
 		desiredChanges.Place += uint64(len(place))
 		for _, p := range place {
 			a.result.place = append(a.result.place, p)
 		}
 
+		min := helper.IntMin(len(place), limit)
+		limit -= min
+	} else if !deploymentPlaceReady && len(lost) != 0 {
+		// We are in a situation where we shouldn't be placing more than we need
+		// to but we have lost allocations. It is a very weird user experience
+		// if you have a node go down and Nomad doesn't replace the allocations
+		// because the deployment is paused/failed so we only place to recover
+		// the lost allocations.
+		allowed := helper.IntMin(len(lost), len(place))
+		desiredChanges.Place += uint64(allowed)
+		for _, p := range place[:allowed] {
+			a.result.place = append(a.result.place, p)
+		}
+	}
+
+	if deploymentPlaceReady {
 		// Do all destructive updates
 		min := helper.IntMin(len(destructive), limit)
 		limit -= min
@@ -463,6 +486,28 @@ func (a *allocReconciler) computeGroup(group string, all allocSet) bool {
 	}
 
 	return deploymentComplete
+}
+
+// batchFiltration filters batch allocations that should be ignored. These are
+// allocations that are terminal from a previous job version.
+func (a *allocReconciler) batchFiltration(all allocSet) (filtered, ignore allocSet) {
+	if !a.batch {
+		return all, nil
+	}
+
+	filtered = filtered.union(all)
+	ignored := make(map[string]*structs.Allocation)
+
+	// Ignore terminal batch jobs from older versions
+	for id, alloc := range filtered {
+		older := alloc.Job.Version < a.job.Version || alloc.Job.CreateIndex < a.job.CreateIndex
+		if older && alloc.TerminalStatus() {
+			delete(filtered, id)
+			ignored[id] = alloc
+		}
+	}
+
+	return filtered, ignored
 }
 
 // handleGroupCanaries handles the canaries for the group by stopping the
@@ -563,7 +608,7 @@ func (a *allocReconciler) computeLimit(group *structs.TaskGroup, untainted, dest
 }
 
 // computePlacement returns the set of allocations to place given the group
-// definiton, the set of untainted and migrating allocations for the group.
+// definition, the set of untainted and migrating allocations for the group.
 func (a *allocReconciler) computePlacements(group *structs.TaskGroup,
 	nameIndex *allocNameIndex, untainted, migrate allocSet) []allocPlaceResult {
 
@@ -585,7 +630,7 @@ func (a *allocReconciler) computePlacements(group *structs.TaskGroup,
 }
 
 // computeStop returns the set of allocations that are marked for stopping given
-// the group definiton, the set of allocations in various states and whether we
+// the group definition, the set of allocations in various states and whether we
 // are canarying.
 func (a *allocReconciler) computeStop(group *structs.TaskGroup, nameIndex *allocNameIndex,
 	untainted, migrate, lost, canaries allocSet, canaryState bool) allocSet {
@@ -654,12 +699,34 @@ func (a *allocReconciler) computeStop(group *structs.TaskGroup, nameIndex *alloc
 	// Select the allocs with the highest count to remove
 	removeNames := nameIndex.Highest(uint(remove))
 	for id, alloc := range untainted {
-		if _, remove := removeNames[alloc.Name]; remove {
+		if _, ok := removeNames[alloc.Name]; ok {
 			stop[id] = alloc
 			a.result.stop = append(a.result.stop, allocStopResult{
 				alloc:             alloc,
 				statusDescription: allocNotNeeded,
 			})
+			delete(untainted, id)
+
+			remove--
+			if remove == 0 {
+				return stop
+			}
+		}
+	}
+
+	// It is possible that we didn't stop as many as we should have if there
+	// were allocations with duplicate names.
+	for id, alloc := range untainted {
+		stop[id] = alloc
+		a.result.stop = append(a.result.stop, allocStopResult{
+			alloc:             alloc,
+			statusDescription: allocNotNeeded,
+		})
+		delete(untainted, id)
+
+		remove--
+		if remove == 0 {
+			return stop
 		}
 	}
 

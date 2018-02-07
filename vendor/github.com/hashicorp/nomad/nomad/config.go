@@ -10,6 +10,7 @@ import (
 
 	"github.com/hashicorp/memberlist"
 	"github.com/hashicorp/nomad/helper/tlsutil"
+	"github.com/hashicorp/nomad/helper/uuid"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/nomad/structs/config"
 	"github.com/hashicorp/nomad/scheduler"
@@ -92,14 +93,32 @@ type Config struct {
 	// RaftTimeout is applied to any network traffic for raft. Defaults to 10s.
 	RaftTimeout time.Duration
 
+	// (Enterprise-only) NonVoter is used to prevent this server from being added
+	// as a voting member of the Raft cluster.
+	NonVoter bool
+
+	// (Enterprise-only) RedundancyZone is the redundancy zone to use for this server.
+	RedundancyZone string
+
+	// (Enterprise-only) UpgradeVersion is the custom upgrade version to use when
+	// performing upgrade migrations.
+	UpgradeVersion string
+
 	// SerfConfig is the configuration for the serf cluster
 	SerfConfig *serf.Config
 
 	// Node name is the name we use to advertise. Defaults to hostname.
 	NodeName string
 
+	// NodeID is the uuid of this server.
+	NodeID string
+
 	// Region is the region this Nomad server belongs to.
 	Region string
+
+	// AuthoritativeRegion is the region which is treated as the authoritative source
+	// for ACLs and Policies. This provides a single source of truth to resolve conflicts.
+	AuthoritativeRegion string
 
 	// Datacenter is the datacenter this Nomad server belongs to.
 	Datacenter string
@@ -224,6 +243,48 @@ type Config struct {
 
 	// TLSConfig holds various TLS related configurations
 	TLSConfig *config.TLSConfig
+
+	// ACLEnabled controls if ACL enforcement and management is enabled.
+	ACLEnabled bool
+
+	// ReplicationBackoff is how much we backoff when replication errors.
+	// This is a tunable knob for testing primarily.
+	ReplicationBackoff time.Duration
+
+	// ReplicationToken is the ACL Token Secret ID used to fetch from
+	// the Authoritative Region.
+	ReplicationToken string
+
+	// SentinelGCInterval is the interval that we GC unused policies.
+	SentinelGCInterval time.Duration
+
+	// SentinelConfig is this Agent's Sentinel configuration
+	SentinelConfig *config.SentinelConfig
+
+	// StatsCollectionInterval is the interval at which the Nomad server
+	// publishes metrics which are periodic in nature like updating gauges
+	StatsCollectionInterval time.Duration
+
+	// DisableTaggedMetrics determines whether metrics will be displayed via a
+	// key/value/tag format, or simply a key/value format
+	DisableTaggedMetrics bool
+
+	// BackwardsCompatibleMetrics determines whether to show methods of
+	// displaying metrics for older verions, or to only show the new format
+	BackwardsCompatibleMetrics bool
+
+	// AutopilotConfig is used to apply the initial autopilot config when
+	// bootstrapping.
+	AutopilotConfig *structs.AutopilotConfig
+
+	// ServerHealthInterval is the frequency with which the health of the
+	// servers in the cluster will be updated.
+	ServerHealthInterval time.Duration
+
+	// AutopilotInterval is the frequency with which the leader will perform
+	// autopilot tasks, such as promoting eligible non-voters and removing
+	// dead servers.
+	AutopilotInterval time.Duration
 }
 
 // CheckVersion is used to check if the ProtocolVersion is valid
@@ -247,8 +308,10 @@ func DefaultConfig() *Config {
 
 	c := &Config{
 		Region:                           DefaultRegion,
+		AuthoritativeRegion:              DefaultRegion,
 		Datacenter:                       DefaultDC,
 		NodeName:                         hostname,
+		NodeID:                           uuid.Generate(),
 		ProtocolVersion:                  ProtocolVersionMax,
 		RaftConfig:                       raft.DefaultConfig(),
 		RaftTimeout:                      10 * time.Second,
@@ -278,7 +341,18 @@ func DefaultConfig() *Config {
 		ConsulConfig:                     config.DefaultConsulConfig(),
 		VaultConfig:                      config.DefaultVaultConfig(),
 		RPCHoldTimeout:                   5 * time.Second,
+		StatsCollectionInterval:          1 * time.Minute,
 		TLSConfig:                        &config.TLSConfig{},
+		ReplicationBackoff:               30 * time.Second,
+		SentinelGCInterval:               30 * time.Second,
+		AutopilotConfig: &structs.AutopilotConfig{
+			CleanupDeadServers:      true,
+			LastContactThreshold:    200 * time.Millisecond,
+			MaxTrailingLogs:         250,
+			ServerStabilizationTime: 10 * time.Second,
+		},
+		ServerHealthInterval: 2 * time.Second,
+		AutopilotInterval:    10 * time.Second,
 	}
 
 	// Enable all known schedulers by default
@@ -302,22 +376,22 @@ func DefaultConfig() *Config {
 	// Disable shutdown on removal
 	c.RaftConfig.ShutdownOnRemove = false
 
-	// Enable interoperability with unversioned Raft library, and don't
-	// start using new ID-based features yet.
-	c.RaftConfig.ProtocolVersion = 1
+	// Enable interoperability with new raft APIs, requires all servers
+	// to be on raft v1 or higher.
+	c.RaftConfig.ProtocolVersion = 2
 
 	return c
 }
 
 // tlsConfig returns a TLSUtil Config based on the server configuration
 func (c *Config) tlsConfig() *tlsutil.Config {
-	tlsConf := &tlsutil.Config{
+	return &tlsutil.Config{
 		VerifyIncoming:       true,
 		VerifyOutgoing:       true,
 		VerifyServerHostname: c.TLSConfig.VerifyServerHostname,
 		CAFile:               c.TLSConfig.CAFile,
 		CertFile:             c.TLSConfig.CertFile,
 		KeyFile:              c.TLSConfig.KeyFile,
+		KeyLoader:            c.TLSConfig.GetKeyLoader(),
 	}
-	return tlsConf
 }

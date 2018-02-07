@@ -1,6 +1,7 @@
 package nomad
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -10,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/armon/go-metrics"
+	metrics "github.com/armon/go-metrics"
 	"github.com/hashicorp/consul/lib"
 	memdb "github.com/hashicorp/go-memdb"
-	"github.com/hashicorp/net-rpc-msgpackrpc"
+	msgpackrpc "github.com/hashicorp/net-rpc-msgpackrpc"
 	"github.com/hashicorp/nomad/nomad/state"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/raft"
@@ -67,26 +68,40 @@ func NewServerCodec(conn io.ReadWriteCloser) rpc.ServerCodec {
 }
 
 // listen is used to listen for incoming RPC connections
-func (s *Server) listen() {
+func (s *Server) listen(ctx context.Context) {
 	for {
+		select {
+		case <-ctx.Done():
+			s.logger.Println("[INFO] nomad.rpc: Closing server RPC connection")
+			return
+		default:
+		}
+
 		// Accept a connection
 		conn, err := s.rpcListener.Accept()
 		if err != nil {
 			if s.shutdown {
 				return
 			}
+
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
 			s.logger.Printf("[ERR] nomad.rpc: failed to accept RPC conn: %v", err)
 			continue
 		}
 
-		go s.handleConn(conn, false)
+		go s.handleConn(ctx, conn, false)
 		metrics.IncrCounter([]string{"nomad", "rpc", "accept_conn"}, 1)
 	}
 }
 
 // handleConn is used to determine if this is a Raft or
 // Nomad type RPC connection and invoke the correct handler
-func (s *Server) handleConn(conn net.Conn, isTLS bool) {
+func (s *Server) handleConn(ctx context.Context, conn net.Conn, isTLS bool) {
 	// Read a single byte
 	buf := make([]byte, 1)
 	if _, err := conn.Read(buf); err != nil {
@@ -99,22 +114,24 @@ func (s *Server) handleConn(conn net.Conn, isTLS bool) {
 
 	// Enforce TLS if EnableRPC is set
 	if s.config.TLSConfig.EnableRPC && !isTLS && RPCType(buf[0]) != rpcTLS {
-		s.logger.Printf("[WARN] nomad.rpc: Non-TLS connection attempted with RequireTLS set")
-		conn.Close()
-		return
+		if !s.config.TLSConfig.RPCUpgradeMode {
+			s.logger.Printf("[WARN] nomad.rpc: Non-TLS connection attempted from %s with RequireTLS set", conn.RemoteAddr().String())
+			conn.Close()
+			return
+		}
 	}
 
 	// Switch on the byte
 	switch RPCType(buf[0]) {
 	case rpcNomad:
-		s.handleNomadConn(conn)
+		s.handleNomadConn(ctx, conn)
 
 	case rpcRaft:
 		metrics.IncrCounter([]string{"nomad", "rpc", "raft_handoff"}, 1)
-		s.raftLayer.Handoff(conn)
+		s.raftLayer.Handoff(ctx, conn)
 
 	case rpcMultiplex:
-		s.handleMultiplex(conn)
+		s.handleMultiplex(ctx, conn)
 
 	case rpcTLS:
 		if s.rpcTLS == nil {
@@ -123,7 +140,7 @@ func (s *Server) handleConn(conn net.Conn, isTLS bool) {
 			return
 		}
 		conn = tls.Server(conn, s.rpcTLS)
-		s.handleConn(conn, true)
+		s.handleConn(ctx, conn, true)
 
 	default:
 		s.logger.Printf("[ERR] nomad.rpc: unrecognized RPC byte: %v", buf[0])
@@ -134,7 +151,7 @@ func (s *Server) handleConn(conn net.Conn, isTLS bool) {
 
 // handleMultiplex is used to multiplex a single incoming connection
 // using the Yamux multiplexer
-func (s *Server) handleMultiplex(conn net.Conn) {
+func (s *Server) handleMultiplex(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 	conf := yamux.DefaultConfig()
 	conf.LogOutput = s.config.LogOutput
@@ -147,16 +164,19 @@ func (s *Server) handleMultiplex(conn net.Conn) {
 			}
 			return
 		}
-		go s.handleNomadConn(sub)
+		go s.handleNomadConn(ctx, sub)
 	}
 }
 
 // handleNomadConn is used to service a single Nomad RPC connection
-func (s *Server) handleNomadConn(conn net.Conn) {
+func (s *Server) handleNomadConn(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 	rpcCodec := NewServerCodec(conn)
 	for {
 		select {
+		case <-ctx.Done():
+			s.logger.Println("[INFO] nomad.rpc: Closing server RPC connection")
+			return
 		case <-s.shutdownCh:
 			return
 		default:
@@ -341,7 +361,8 @@ type blockingOptions struct {
 // blockingRPC is used for queries that need to wait for a
 // minimum index. This is used to block and wait for changes.
 func (s *Server) blockingRPC(opts *blockingOptions) error {
-	var timeout *time.Timer
+	ctx := context.Background()
+	var cancel context.CancelFunc
 	var state *state.StateStore
 
 	// Fast path non-blocking
@@ -360,8 +381,8 @@ func (s *Server) blockingRPC(opts *blockingOptions) error {
 	opts.queryOpts.MaxQueryTime += lib.RandomStagger(opts.queryOpts.MaxQueryTime / jitterFraction)
 
 	// Setup a query timeout
-	timeout = time.NewTimer(opts.queryOpts.MaxQueryTime)
-	defer timeout.Stop()
+	ctx, cancel = context.WithTimeout(context.Background(), opts.queryOpts.MaxQueryTime)
+	defer cancel()
 
 RUN_QUERY:
 	// Update the query meta data
@@ -393,7 +414,7 @@ RUN_QUERY:
 
 	// Check for minimum query time
 	if err == nil && opts.queryOpts.MinQueryIndex > 0 && opts.queryMeta.Index <= opts.queryOpts.MinQueryIndex {
-		if expired := ws.Watch(timeout.C); !expired {
+		if err := ws.WatchCtx(ctx); err == nil {
 			goto RUN_QUERY
 		}
 	}

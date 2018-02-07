@@ -22,9 +22,9 @@ The table below shows this endpoint's support for
 [blocking queries](/api/index.html#blocking-queries) and
 [required ACLs](/api/index.html#acls).
 
-| Blocking Queries | ACL Required |
-| ---------------- | ------------ |
-| `YES`            | `none`       |
+| Blocking Queries | ACL Required         |
+| ---------------- | -------------------- |
+| `YES`            | `namespace:read-job` |
 
 ### Parameters
 
@@ -35,12 +35,12 @@ The table below shows this endpoint's support for
 
 ```text
 $ curl \
-    https://nomad.rocks/v1/allocations
+    https://localhost:4646/v1/allocations
 ```
 
 ```text
 $ curl \
-    https://nomad.rocks/v1/allocations?prefix=a8198d79
+    https://localhost:4646/v1/allocations?prefix=a8198d79
 ```
 
 ### Sample Response
@@ -141,7 +141,8 @@ $ curl \
     },
     "CreateIndex": 54,
     "ModifyIndex": 57,
-    "CreateTime": 1495747371794276400
+    "CreateTime": 1495747371794276400,
+    "ModifyTime": 1495747371794276400
   }
 ]
 ```
@@ -158,9 +159,9 @@ The table below shows this endpoint's support for
 [blocking queries](/api/index.html#blocking-queries) and
 [required ACLs](/api/index.html#acls).
 
-| Blocking Queries | ACL Required |
-| ---------------- | ------------ |
-| `YES`            | `none`       |
+| Blocking Queries | ACL Required         |
+| ---------------- | -------------------- |
+| `YES`            | `namespace:read-job` |
 
 ### Parameters
 
@@ -172,7 +173,7 @@ The table below shows this endpoint's support for
 
 ```text
 $ curl \
-    https://nomad.rocks/v1/allocation/5456bd7a-9fc0-c0dd-6131-cbee77f57577
+    https://localhost:4646/v1/allocation/5456bd7a-9fc0-c0dd-6131-cbee77f57577
 ```
 
 ### Sample Response
@@ -223,7 +224,7 @@ $ curl \
             "Env": null,
             "Services": [
               {
-                "Name": "global-redis-check",
+                "Name": "redis-cache",
                 "PortLabel": "db",
                 "Tags": [
                   "global",
@@ -461,7 +462,8 @@ $ curl \
   "CreateIndex": 54,
   "ModifyIndex": 57,
   "AllocModifyIndex": 54,
-  "CreateTime": 1495747371794276400
+  "CreateTime": 1495747371794276400,
+  "ModifyTime": 1495747371794276400
 }
 ```
 

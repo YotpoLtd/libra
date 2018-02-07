@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/hashicorp/nomad/api"
+	"github.com/posener/complete"
 	"github.com/ryanuber/columnize"
 )
 
@@ -16,7 +17,7 @@ func (c *OperatorRaftListCommand) Help() string {
 	helpText := `
 Usage: nomad operator raft list-peers [options]
 
-Displays the current Raft peer configuration.
+  Displays the current Raft peer configuration.
 
 General Options:
 
@@ -30,6 +31,17 @@ List Peers Options:
     to set -stale to "true" to get the configuration from a non-leader server.
 `
 	return strings.TrimSpace(helpText)
+}
+
+func (c *OperatorRaftListCommand) AutocompleteFlags() complete.Flags {
+	return mergeAutocompleteFlags(c.Meta.AutocompleteFlags(FlagSetClient),
+		complete.Flags{
+			"-stale": complete.PredictAnything,
+		})
+}
+
+func (c *OperatorRaftListCommand) AutocompleteArgs() complete.Predictor {
+	return complete.PredictNothing
 }
 
 func (c *OperatorRaftListCommand) Synopsis() string {
@@ -67,14 +79,14 @@ func (c *OperatorRaftListCommand) Run(args []string) int {
 	}
 
 	// Format it as a nice table.
-	result := []string{"Node|ID|Address|State|Voter"}
+	result := []string{"Node|ID|Address|State|Voter|RaftProtocol"}
 	for _, s := range reply.Servers {
 		state := "follower"
 		if s.Leader {
 			state = "leader"
 		}
-		result = append(result, fmt.Sprintf("%s|%s|%s|%s|%v",
-			s.Node, s.ID, s.Address, state, s.Voter))
+		result = append(result, fmt.Sprintf("%s|%s|%s|%s|%v|%s",
+			s.Node, s.ID, s.Address, state, s.Voter, s.RaftProtocol))
 	}
 	c.Ui.Output(columnize.SimpleFormat(result))
 

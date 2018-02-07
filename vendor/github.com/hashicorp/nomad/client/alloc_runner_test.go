@@ -14,10 +14,14 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-multierror"
+	"github.com/hashicorp/nomad/command/agent/consul"
+	"github.com/hashicorp/nomad/helper/uuid"
 	"github.com/hashicorp/nomad/nomad/mock"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/testutil"
+	"github.com/hashicorp/nomad/version"
 	"github.com/kr/pretty"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/hashicorp/nomad/client/config"
 	"github.com/hashicorp/nomad/client/vaultclient"
@@ -46,6 +50,18 @@ func (m *MockAllocStateUpdater) Last() (int, *structs.Allocation) {
 	return n, m.Allocs[n-1].Copy()
 }
 
+// allocationBucketExists checks if the allocation bucket was created.
+func allocationBucketExists(tx *bolt.Tx, allocID string) bool {
+	allocations := tx.Bucket(allocationsBucket)
+	if allocations == nil {
+		return false
+	}
+
+	// Retrieve the specific allocations bucket
+	alloc := allocations.Bucket([]byte(allocID))
+	return alloc != nil
+}
+
 func testAllocRunnerFromAlloc(alloc *structs.Allocation, restarts bool) (*MockAllocStateUpdater, *AllocRunner) {
 	logger := testLogger()
 	conf := config.DefaultConfig()
@@ -60,7 +76,7 @@ func testAllocRunnerFromAlloc(alloc *structs.Allocation, restarts bool) (*MockAl
 		alloc.Job.Type = structs.JobTypeBatch
 	}
 	vclient := vaultclient.NewMockVaultClient()
-	ar := NewAllocRunner(logger, conf, db, upd.Update, alloc, vclient, newMockConsulServiceClient())
+	ar := NewAllocRunner(logger, conf, db, upd.Update, alloc, vclient, newMockConsulServiceClient(), noopPrevAlloc{})
 	return upd, ar
 }
 
@@ -96,6 +112,7 @@ func TestAllocRunner_SimpleRun(t *testing.T) {
 // Test that the watcher will mark the allocation as unhealthy.
 func TestAllocRunner_DeploymentHealth_Unhealthy_BadStart(t *testing.T) {
 	t.Parallel()
+	assert := assert.New(t)
 
 	// Ensure the task fails and restarts
 	upd, ar := testAllocRunner(false)
@@ -106,7 +123,7 @@ func TestAllocRunner_DeploymentHealth_Unhealthy_BadStart(t *testing.T) {
 	task.Config["start_error"] = "test error"
 
 	// Make the alloc be part of a deployment
-	ar.alloc.DeploymentID = structs.GenerateUUID()
+	ar.alloc.DeploymentID = uuid.Generate()
 	ar.alloc.Job.TaskGroups[0].Update = structs.DefaultUpdateStrategy.Copy()
 	ar.alloc.Job.TaskGroups[0].Update.HealthCheck = structs.UpdateStrategyHealthCheck_TaskStates
 	ar.alloc.Job.TaskGroups[0].Update.MaxParallel = 1
@@ -128,12 +145,22 @@ func TestAllocRunner_DeploymentHealth_Unhealthy_BadStart(t *testing.T) {
 	}, func(err error) {
 		t.Fatalf("err: %v", err)
 	})
+
+	// Assert that we have an event explaining why we are unhealthy.
+	assert.Len(ar.taskStates, 1)
+	state := ar.taskStates[task.Name]
+	assert.NotNil(state)
+	assert.NotEmpty(state.Events)
+	last := state.Events[len(state.Events)-1]
+	assert.Equal(allocHealthEventSource, last.Type)
+	assert.Contains(last.Message, "failed task")
 }
 
 // Test that the watcher will mark the allocation as unhealthy if it hits its
 // deadline.
 func TestAllocRunner_DeploymentHealth_Unhealthy_Deadline(t *testing.T) {
 	t.Parallel()
+	assert := assert.New(t)
 
 	// Ensure the task fails and restarts
 	upd, ar := testAllocRunner(false)
@@ -145,7 +172,7 @@ func TestAllocRunner_DeploymentHealth_Unhealthy_Deadline(t *testing.T) {
 	task.Config["run_for"] = "10s"
 
 	// Make the alloc be part of a deployment
-	ar.alloc.DeploymentID = structs.GenerateUUID()
+	ar.alloc.DeploymentID = uuid.Generate()
 	ar.alloc.Job.TaskGroups[0].Update = structs.DefaultUpdateStrategy.Copy()
 	ar.alloc.Job.TaskGroups[0].Update.HealthCheck = structs.UpdateStrategyHealthCheck_TaskStates
 	ar.alloc.Job.TaskGroups[0].Update.MaxParallel = 1
@@ -168,6 +195,15 @@ func TestAllocRunner_DeploymentHealth_Unhealthy_Deadline(t *testing.T) {
 	}, func(err error) {
 		t.Fatalf("err: %v", err)
 	})
+
+	// Assert that we have an event explaining why we are unhealthy.
+	assert.Len(ar.taskStates, 1)
+	state := ar.taskStates[task.Name]
+	assert.NotNil(state)
+	assert.NotEmpty(state.Events)
+	last := state.Events[len(state.Events)-1]
+	assert.Equal(allocHealthEventSource, last.Type)
+	assert.Contains(last.Message, "not running by deadline")
 }
 
 // Test that the watcher will mark the allocation as healthy.
@@ -189,7 +225,7 @@ func TestAllocRunner_DeploymentHealth_Healthy_NoChecks(t *testing.T) {
 	task2.Config["start_block_for"] = "500ms"
 
 	// Make the alloc be part of a deployment
-	ar.alloc.DeploymentID = structs.GenerateUUID()
+	ar.alloc.DeploymentID = uuid.Generate()
 	ar.alloc.Job.TaskGroups[0].Update = structs.DefaultUpdateStrategy.Copy()
 	ar.alloc.Job.TaskGroups[0].Update.HealthCheck = structs.UpdateStrategyHealthCheck_TaskStates
 	ar.alloc.Job.TaskGroups[0].Update.MaxParallel = 1
@@ -237,14 +273,14 @@ func TestAllocRunner_DeploymentHealth_Healthy_Checks(t *testing.T) {
 	task2.Services = nil
 
 	// Make the alloc be part of a deployment
-	ar.alloc.DeploymentID = structs.GenerateUUID()
+	ar.alloc.DeploymentID = uuid.Generate()
 	ar.alloc.Job.TaskGroups[0].Update = structs.DefaultUpdateStrategy.Copy()
 	ar.alloc.Job.TaskGroups[0].Update.HealthCheck = structs.UpdateStrategyHealthCheck_Checks
 	ar.alloc.Job.TaskGroups[0].Update.MaxParallel = 1
 	ar.alloc.Job.TaskGroups[0].Update.MinHealthyTime = 100 * time.Millisecond
 
 	checkHealthy := &api.AgentCheck{
-		CheckID: structs.GenerateUUID(),
+		CheckID: uuid.Generate(),
 		Status:  api.HealthPassing,
 	}
 	checkUnhealthy := &api.AgentCheck{
@@ -254,12 +290,34 @@ func TestAllocRunner_DeploymentHealth_Healthy_Checks(t *testing.T) {
 
 	// Only return the check as healthy after a duration
 	trigger := time.After(500 * time.Millisecond)
-	ar.consulClient.(*mockConsulServiceClient).checksFn = func(a *structs.Allocation) ([]*api.AgentCheck, error) {
+	ar.consulClient.(*mockConsulServiceClient).allocRegistrationsFn = func(allocID string) (*consul.AllocRegistration, error) {
 		select {
 		case <-trigger:
-			return []*api.AgentCheck{checkHealthy}, nil
+			return &consul.AllocRegistration{
+				Tasks: map[string]*consul.TaskRegistration{
+					task.Name: {
+						Services: map[string]*consul.ServiceRegistration{
+							"123": {
+								Service: &api.AgentService{Service: "foo"},
+								Checks:  []*api.AgentCheck{checkHealthy},
+							},
+						},
+					},
+				},
+			}, nil
 		default:
-			return []*api.AgentCheck{checkUnhealthy}, nil
+			return &consul.AllocRegistration{
+				Tasks: map[string]*consul.TaskRegistration{
+					task.Name: {
+						Services: map[string]*consul.ServiceRegistration{
+							"123": {
+								Service: &api.AgentService{Service: "foo"},
+								Checks:  []*api.AgentCheck{checkUnhealthy},
+							},
+						},
+					},
+				},
+			}, nil
 		}
 	}
 
@@ -287,6 +345,77 @@ func TestAllocRunner_DeploymentHealth_Healthy_Checks(t *testing.T) {
 	}
 }
 
+// Test that the watcher will mark the allocation as unhealthy with failing
+// checks
+func TestAllocRunner_DeploymentHealth_Unhealthy_Checks(t *testing.T) {
+	t.Parallel()
+	assert := assert.New(t)
+
+	// Ensure the task fails and restarts
+	upd, ar := testAllocRunner(false)
+
+	// Make the task fail
+	task := ar.alloc.Job.TaskGroups[0].Tasks[0]
+	task.Driver = "mock_driver"
+	task.Config["run_for"] = "10s"
+
+	// Make the alloc be part of a deployment
+	ar.alloc.DeploymentID = uuid.Generate()
+	ar.alloc.Job.TaskGroups[0].Update = structs.DefaultUpdateStrategy.Copy()
+	ar.alloc.Job.TaskGroups[0].Update.HealthCheck = structs.UpdateStrategyHealthCheck_Checks
+	ar.alloc.Job.TaskGroups[0].Update.MaxParallel = 1
+	ar.alloc.Job.TaskGroups[0].Update.MinHealthyTime = 100 * time.Millisecond
+	ar.alloc.Job.TaskGroups[0].Update.HealthyDeadline = 1 * time.Second
+
+	checkUnhealthy := &api.AgentCheck{
+		CheckID: uuid.Generate(),
+		Status:  api.HealthWarning,
+	}
+
+	// Only return the check as healthy after a duration
+	ar.consulClient.(*mockConsulServiceClient).allocRegistrationsFn = func(allocID string) (*consul.AllocRegistration, error) {
+		return &consul.AllocRegistration{
+			Tasks: map[string]*consul.TaskRegistration{
+				task.Name: {
+					Services: map[string]*consul.ServiceRegistration{
+						"123": {
+							Service: &api.AgentService{Service: "foo"},
+							Checks:  []*api.AgentCheck{checkUnhealthy},
+						},
+					},
+				},
+			},
+		}, nil
+	}
+
+	go ar.Run()
+	defer ar.Destroy()
+
+	testutil.WaitForResult(func() (bool, error) {
+		_, last := upd.Last()
+		if last == nil {
+			return false, fmt.Errorf("No updates")
+		}
+		if last.DeploymentStatus == nil || last.DeploymentStatus.Healthy == nil {
+			return false, fmt.Errorf("want deployment status unhealthy; got unset")
+		} else if *last.DeploymentStatus.Healthy {
+			return false, fmt.Errorf("want deployment status unhealthy; got healthy")
+		}
+		return true, nil
+	}, func(err error) {
+		t.Fatalf("err: %v", err)
+	})
+
+	// Assert that we have an event explaining why we are unhealthy.
+	assert.Len(ar.taskStates, 1)
+	state := ar.taskStates[task.Name]
+	assert.NotNil(state)
+	assert.NotEmpty(state.Events)
+	last := state.Events[len(state.Events)-1]
+	assert.Equal(allocHealthEventSource, last.Type)
+	assert.Contains(last.Message, "Services not healthy by deadline")
+}
+
 // Test that the watcher will mark the allocation as healthy.
 func TestAllocRunner_DeploymentHealth_Healthy_UpdatedDeployment(t *testing.T) {
 	t.Parallel()
@@ -300,7 +429,7 @@ func TestAllocRunner_DeploymentHealth_Healthy_UpdatedDeployment(t *testing.T) {
 	task.Config["run_for"] = "30s"
 
 	// Make the alloc be part of a deployment
-	ar.alloc.DeploymentID = structs.GenerateUUID()
+	ar.alloc.DeploymentID = uuid.Generate()
 	ar.alloc.Job.TaskGroups[0].Update = structs.DefaultUpdateStrategy.Copy()
 	ar.alloc.Job.TaskGroups[0].Update.HealthCheck = structs.UpdateStrategyHealthCheck_TaskStates
 	ar.alloc.Job.TaskGroups[0].Update.MaxParallel = 1
@@ -327,7 +456,7 @@ func TestAllocRunner_DeploymentHealth_Healthy_UpdatedDeployment(t *testing.T) {
 	// Mimick an update to a new deployment id
 	oldCount, last := upd.Last()
 	last.DeploymentStatus = nil
-	last.DeploymentID = structs.GenerateUUID()
+	last.DeploymentID = uuid.Generate()
 	ar.Update(last)
 
 	testutil.WaitForResult(func() (bool, error) {
@@ -619,9 +748,10 @@ func TestAllocRunner_SaveRestoreState(t *testing.T) {
 
 	// Create a new alloc runner
 	l2 := prefixedTestLogger("----- ar2:  ")
+	alloc2 := &structs.Allocation{ID: ar.alloc.ID}
+	prevAlloc := newAllocWatcher(alloc2, ar, nil, ar.config, l2, "")
 	ar2 := NewAllocRunner(l2, ar.config, ar.stateDB, upd.Update,
-		&structs.Allocation{ID: ar.alloc.ID}, ar.vaultClient,
-		ar.consulClient)
+		alloc2, ar.vaultClient, ar.consulClient, prevAlloc)
 	err = ar2.RestoreState()
 	if err != nil {
 		t.Fatalf("err: %v", err)
@@ -712,9 +842,11 @@ func TestAllocRunner_SaveRestoreState_TerminalAlloc(t *testing.T) {
 	defer ar.allocLock.Unlock()
 
 	// Create a new alloc runner
-	ar2 := NewAllocRunner(ar.logger, ar.config, ar.stateDB, upd.Update,
-		&structs.Allocation{ID: ar.alloc.ID}, ar.vaultClient, ar.consulClient)
-	ar2.logger = prefixedTestLogger("ar2: ")
+	l2 := prefixedTestLogger("ar2: ")
+	alloc2 := &structs.Allocation{ID: ar.alloc.ID}
+	prevAlloc := newAllocWatcher(alloc2, ar, nil, ar.config, l2, "")
+	ar2 := NewAllocRunner(l2, ar.config, ar.stateDB, upd.Update,
+		alloc2, ar.vaultClient, ar.consulClient, prevAlloc)
 	err = ar2.RestoreState()
 	if err != nil {
 		t.Fatalf("err: %v", err)
@@ -800,7 +932,7 @@ func TestAllocRunner_SaveRestoreState_Upgrade(t *testing.T) {
 	upd, ar := testAllocRunnerFromAlloc(alloc, false)
 	// Hack in old version to cause an upgrade on RestoreState
 	origConfig := ar.config.Copy()
-	ar.config.Version = "0.5.6"
+	ar.config.Version = &version.VersionInfo{Version: "0.5.6"}
 	go ar.Run()
 	defer ar.Destroy()
 
@@ -825,8 +957,10 @@ func TestAllocRunner_SaveRestoreState_Upgrade(t *testing.T) {
 	}
 
 	// Create a new alloc runner
-	l2 := prefixedTestLogger("----- ar2:  ")
-	ar2 := NewAllocRunner(l2, origConfig, ar.stateDB, upd.Update, &structs.Allocation{ID: ar.alloc.ID}, ar.vaultClient, ar.consulClient)
+	l2 := prefixedTestLogger("ar2: ")
+	alloc2 := &structs.Allocation{ID: ar.alloc.ID}
+	prevAlloc := newAllocWatcher(alloc2, ar, nil, origConfig, l2, "")
+	ar2 := NewAllocRunner(l2, origConfig, ar.stateDB, upd.Update, alloc2, ar.vaultClient, ar.consulClient, prevAlloc)
 	err = ar2.RestoreState()
 	if err != nil {
 		t.Fatalf("err: %v", err)
@@ -979,7 +1113,7 @@ func TestAllocRunner_RestoreOldState(t *testing.T) {
 	alloc.Job.Type = structs.JobTypeBatch
 	vclient := vaultclient.NewMockVaultClient()
 	cclient := newMockConsulServiceClient()
-	ar := NewAllocRunner(logger, conf, db, upd.Update, alloc, vclient, cclient)
+	ar := NewAllocRunner(logger, conf, db, upd.Update, alloc, vclient, cclient, noopPrevAlloc{})
 	defer ar.Destroy()
 
 	// RestoreState should fail on the task state since we only test the
@@ -1231,6 +1365,100 @@ func TestAllocRunner_TaskLeader_StopTG(t *testing.T) {
 	})
 }
 
+// TestAllocRunner_TaskLeader_StopRestoredTG asserts that when stopping a
+// restored task group with a leader that failed before restoring the leader is
+// not stopped as it does not exist.
+// See https://github.com/hashicorp/nomad/issues/3420#issuecomment-341666932
+func TestAllocRunner_TaskLeader_StopRestoredTG(t *testing.T) {
+	t.Parallel()
+	_, ar := testAllocRunner(false)
+	defer ar.Destroy()
+
+	// Create a leader and follower task in the task group
+	task := ar.alloc.Job.TaskGroups[0].Tasks[0]
+	task.Name = "follower1"
+	task.Driver = "mock_driver"
+	task.KillTimeout = 10 * time.Second
+	task.Config = map[string]interface{}{
+		"run_for": "10s",
+	}
+
+	task2 := ar.alloc.Job.TaskGroups[0].Tasks[0].Copy()
+	task2.Name = "leader"
+	task2.Driver = "mock_driver"
+	task2.Leader = true
+	task2.KillTimeout = 10 * time.Millisecond
+	task2.Config = map[string]interface{}{
+		"run_for": "0s",
+	}
+
+	ar.alloc.Job.TaskGroups[0].Tasks = append(ar.alloc.Job.TaskGroups[0].Tasks, task2)
+	ar.alloc.TaskResources[task2.Name] = task2.Resources
+
+	// Mimic Nomad exiting before the leader stopping is able to stop other tasks.
+	ar.tasks = map[string]*TaskRunner{
+		"leader": NewTaskRunner(ar.logger, ar.config, ar.stateDB, ar.setTaskState,
+			ar.allocDir.NewTaskDir(task2.Name), ar.Alloc(), task2.Copy(),
+			ar.vaultClient, ar.consulClient),
+		"follower1": NewTaskRunner(ar.logger, ar.config, ar.stateDB, ar.setTaskState,
+			ar.allocDir.NewTaskDir(task.Name), ar.Alloc(), task.Copy(),
+			ar.vaultClient, ar.consulClient),
+	}
+	ar.taskStates = map[string]*structs.TaskState{
+		"leader":    {State: structs.TaskStateDead},
+		"follower1": {State: structs.TaskStateRunning},
+	}
+	if err := ar.SaveState(); err != nil {
+		t.Fatalf("error saving state: %v", err)
+	}
+
+	// Create a new AllocRunner to test RestoreState and Run
+	upd2 := &MockAllocStateUpdater{}
+	ar2 := NewAllocRunner(ar.logger, ar.config, ar.stateDB, upd2.Update, ar.alloc,
+		ar.vaultClient, ar.consulClient, ar.prevAlloc)
+	defer ar2.Destroy()
+
+	if err := ar2.RestoreState(); err != nil {
+		t.Fatalf("error restoring state: %v", err)
+	}
+	go ar2.Run()
+
+	// Wait for tasks to be stopped because leader is dead
+	testutil.WaitForResult(func() (bool, error) {
+		_, last := upd2.Last()
+		if last == nil {
+			return false, fmt.Errorf("no updates yet")
+		}
+		if actual := last.TaskStates["leader"].State; actual != structs.TaskStateDead {
+			return false, fmt.Errorf("Task leader is not dead yet (it's %q)", actual)
+		}
+		if actual := last.TaskStates["follower1"].State; actual != structs.TaskStateDead {
+			return false, fmt.Errorf("Task follower1 is not dead yet (it's %q)", actual)
+		}
+		return true, nil
+	}, func(err error) {
+		count, last := upd2.Last()
+		t.Logf("Updates: %d", count)
+		for name, state := range last.TaskStates {
+			t.Logf("%s: %s", name, state.State)
+		}
+		t.Fatalf("err: %v", err)
+	})
+
+	// Make sure it GCs properly
+	ar2.Destroy()
+
+	select {
+	case <-ar2.WaitCh():
+		// exited as expected
+	case <-time.After(10 * time.Second):
+		t.Fatalf("timed out waiting for AR to GC")
+	}
+}
+
+// TestAllocRunner_MoveAllocDir asserts that a file written to an alloc's
+// local/ dir will be moved to a replacement alloc's local/ dir if sticky
+// volumes is on.
 func TestAllocRunner_MoveAllocDir(t *testing.T) {
 	t.Parallel()
 	// Create an alloc runner
@@ -1265,19 +1493,24 @@ func TestAllocRunner_MoveAllocDir(t *testing.T) {
 	ioutil.WriteFile(taskLocalFile, []byte("good bye world"), os.ModePerm)
 
 	// Create another alloc runner
-	alloc1 := mock.Alloc()
-	task = alloc1.Job.TaskGroups[0].Tasks[0]
+	alloc2 := mock.Alloc()
+	alloc2.PreviousAllocation = ar.allocID
+	alloc2.Job.TaskGroups[0].EphemeralDisk.Sticky = true
+	task = alloc2.Job.TaskGroups[0].Tasks[0]
 	task.Driver = "mock_driver"
 	task.Config = map[string]interface{}{
 		"run_for": "1s",
 	}
-	upd1, ar1 := testAllocRunnerFromAlloc(alloc1, false)
-	ar1.SetPreviousAllocDir(ar.allocDir)
-	go ar1.Run()
-	defer ar1.Destroy()
+	upd2, ar2 := testAllocRunnerFromAlloc(alloc2, false)
+
+	// Set prevAlloc like Client does
+	ar2.prevAlloc = newAllocWatcher(alloc2, ar, nil, ar2.config, ar2.logger, "")
+
+	go ar2.Run()
+	defer ar2.Destroy()
 
 	testutil.WaitForResult(func() (bool, error) {
-		_, last := upd1.Last()
+		_, last := upd2.Last()
 		if last == nil {
 			return false, fmt.Errorf("No updates")
 		}
@@ -1289,14 +1522,14 @@ func TestAllocRunner_MoveAllocDir(t *testing.T) {
 		t.Fatalf("err: %v", err)
 	})
 
-	// Ensure that data from ar1 was moved to ar
-	taskDir = ar1.allocDir.TaskDirs[task.Name]
+	// Ensure that data from ar was moved to ar2
+	taskDir = ar2.allocDir.TaskDirs[task.Name]
 	taskLocalFile = filepath.Join(taskDir.LocalDir, "local_file")
 	if fileInfo, _ := os.Stat(taskLocalFile); fileInfo == nil {
 		t.Fatalf("file %v not found", taskLocalFile)
 	}
 
-	dataFile = filepath.Join(ar1.allocDir.SharedDir, "data", "data_file")
+	dataFile = filepath.Join(ar2.allocDir.SharedDir, "data", "data_file")
 	if fileInfo, _ := os.Stat(dataFile); fileInfo == nil {
 		t.Fatalf("file %v not found", dataFile)
 	}

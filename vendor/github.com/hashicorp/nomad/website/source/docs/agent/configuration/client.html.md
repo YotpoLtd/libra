@@ -49,11 +49,12 @@ client {
 - `meta` `(map[string]string: nil)` - Specifies a key-value map that annotates
   with user-defined metadata.
 
-- `network_interface` `(string: "lo | lo0")` - Specifies the name of the
-  interface to force network fingerprinting on. This defaults to the loopback
-  interface. All addresses on the interface are fingerprinted except the ones
-  which are scoped local for IPv6. When allocating ports for tasks, the
-  scheduler will choose from the IPs of the fingerprinted interface.
+- `network_interface` `(string: varied)` - Specifies the name of the interface
+  to force network fingerprinting on. When run in dev mode, this defaults to the
+  loopback interface. When not in dev mode, the interface attached to the
+  default route is used. All IP addresses except those scoped local for IPV6 on
+  the chosen interface are fingerprinted. The scheduler chooses from those IP
+  addresses when allocating ports for tasks.
 
 - `network_speed` `(int: 0)` - Specifies an override for the network link speed.
   This value, if set, overrides any detected or defaulted link speed. Most
@@ -92,7 +93,7 @@ client {
  "client", like `"/opt/nomad/client"`. This must be an absolute path.
 
 - `gc_interval` `(string: "1m")` - Specifies the interval at which Nomad
-  attempts to garbage collect terminal allocation directories. 
+  attempts to garbage collect terminal allocation directories.
 
 - `gc_disk_usage_threshold` `(float: 80)` - Specifies the disk usage percent which
   Nomad tries to maintain by garbage collecting terminal allocations.
@@ -264,6 +265,19 @@ see the [drivers documentation](/docs/drivers/index.html).
     client {
       options = {
         "fingerprint.blacklist" = "network"
+      }
+    }
+    ```
+
+- `"fingerprint.network.disallow_link_local"` `(string: "false")` - Specifies
+  whether the network fingerprinter should ignore link-local addresses in the
+  case that no globally routable address is found. The fingerprinter will always
+  prefer globally routable addresses.
+
+    ```hcl
+    client {
+      options = {
+        "fingerprint.network.disallow_link_local" = "true"
       }
     }
     ```
