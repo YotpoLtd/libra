@@ -27,7 +27,7 @@ type InfluxDbBackend struct {
 	Connection influx.Client
 }
 
-// NewInfluxDbackend will create a new InfluxDB Client
+// NewInfluxDbBackend will create a new InfluxDB Client
 func NewInfluxDbBackend(name string, config InfluxDbConfig) (*InfluxDbBackend, error) {
 
 	var influxHTTPTimeout time.Duration
@@ -42,12 +42,13 @@ func NewInfluxDbBackend(name string, config InfluxDbConfig) (*InfluxDbBackend, e
 		influxHTTPTimeout, _ = time.ParseDuration("5s")
 	}
 
+
 	influxHTTPConfig := influx.HTTPConfig{
 		Addr:      config.Addr,
-		Username:  config.Username,
 		Password:  config.Password,
-		UserAgent: config.UserAgent,
 		Timeout:   influxHTTPTimeout,
+		UserAgent: config.UserAgent,
+		Username:  config.Username,
 	}
 
 	ic, err := influx.NewHTTPClient(influxHTTPConfig)
@@ -108,19 +109,15 @@ func (b *InfluxDbBackend) GetValue(rule structs.Rule) (float64, error) {
 
 	if whereClause != nil {
 		for k, v := range whereClause {
-			whereClauseStr = whereClauseStr + fmt.Sprintf("%s='%s' ", k, v)
+			whereClauseStr = whereClauseStr + fmt.Sprintf("%s='%s' AND ", k, v)
 		}
-		// build where string from map here
 	}
-
-	whereClauseStr = whereClauseStr + "AND "
 
 	timePeriod := rule.TimePeriod
 
 	if timePeriod == "" {
 		timePeriod = "5m"
 	} else {
-		// validating
 		_, err := time.ParseDuration(timePeriod)
 
 		if err != nil {
@@ -129,7 +126,6 @@ func (b *InfluxDbBackend) GetValue(rule structs.Rule) (float64, error) {
 	}
 
 	q := fmt.Sprintf("SELECT %s(%s) FROM %s WHERE %s time > now() - %s", selector, fieldName, measurementName, whereClauseStr, timePeriod)
-	fmt.Println(q)
 	res, err := queryDB(b.Connection, q, databaseName)
 	if err != nil {
 		return 0.0, err
@@ -138,8 +134,6 @@ func (b *InfluxDbBackend) GetValue(rule structs.Rule) (float64, error) {
 	if len(res[0].Series) == 0 {
 		return 0.0, fmt.Errorf("no datapoints found for [%s]", q)
 	}
-
-	fmt.Println(res)
 
 
 	var value interface{}

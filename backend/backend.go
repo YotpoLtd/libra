@@ -80,22 +80,33 @@ func InitializeBackends(backends map[string]structs.Backend) (ConfiguredBackends
 
 			conf := c.Backends[name]
 
-			username := conf.Password
-			if username == "" {
-				username = os.Getenv("INFLUX_USERNAME")
+			var influxDbUserName, influxDbPassword string
+
+			if envInfluxDbUserName := os.Getenv("INFLUX_USERNAME"); envInfluxDbUserName != "" {
+				influxDbUserName = conf.Username
+			} else {
+				influxDbUserName = envInfluxDbUserName
 			}
 
-			password := conf.Password
-			if password == "" {
-				password = os.Getenv("INFLUX_PASSWORD")
+			if envInfluxDbPassword := os.Getenv("INFLUX_PASSWORD"); envInfluxDbPassword != "" {
+				influxDbPassword = conf.Username
+			} else {
+				influxDbPassword = envInfluxDbPassword
 			}
+
+			userAgent := conf.UserAgent
+			if userAgent == "" {
+				userAgent = "libra"
+			}
+
 			connection, err := NewInfluxDbBackend(name, InfluxDbConfig{
-				Kind:     conf.Kind,
-				Name:     conf.Name,
-				Addr:     conf.Addr,
-				Timeout:  conf.Timeout,
-				Username: username,
-				Password: password,
+				Addr:      conf.Addr,
+				Kind:      conf.Kind,
+				Name:      conf.Name,
+				Password:  influxDbPassword,
+				Timeout:   conf.Timeout,
+				UserAgent: userAgent,
+				Username:  influxDbUserName,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("Bad configuration for %s: %s", name, err)
