@@ -2,6 +2,7 @@ package nomad
 
 import (
 	"errors"
+	"log"
 	"os"
 	"strconv"
 
@@ -34,10 +35,15 @@ func Scale(client *api.Client, jobID, group string, scale, min, max int) (string
 	if err != nil {
 		return "", 0, err
 	}
+
 	for _, tg := range job.TaskGroups {
 		if *tg.Name == group {
 			oldCount := *tg.Count
-			newCount = oldCount + scale
+			if *job.Status == "dead" {
+				newCount = 1
+			} else {
+				newCount = oldCount + scale
+			}
 			if newCount < min || newCount > max {
 				return "", oldCount, errors.New("the new group count (" + strconv.Itoa(newCount) + ") is outside of the configured range (" + strconv.Itoa(min) + "-" + strconv.Itoa(max) + ")")
 			}
@@ -87,10 +93,17 @@ func SetCapacity(client *api.Client, jobID, groupID string, count, min, max int)
 	if err != nil {
 		return "", 0, err
 	}
-	oldCount := *job.TaskGroups[0].Count
-	if count < min || count > max {
-		return "", oldCount, errors.New("the desired count (" + strconv.Itoa(count) + ") is outside of the configured range (" + strconv.Itoa(min) + "-" + strconv.Itoa(max) + ")")
+
+	if *job.Status == "dead" {
+		log.Printf("[DEBUG] job %s is dead, setting count to 1 and state to running", *job.Name)
+		count = 1
+	} else {
+		oldCount := *job.TaskGroups[0].Count
+		if count < min || count > max {
+			return "", oldCount, errors.New("the desired count (" + strconv.Itoa(count) + ") is outside of the configured range (" + strconv.Itoa(min) + "-" + strconv.Itoa(max) + ")")
+		}
 	}
+
 	job.TaskGroups[0].Count = &count
 	resp, _, _ := client.Jobs().Register(job, &api.WriteOptions{})
 	return resp.EvalID, count, nil
