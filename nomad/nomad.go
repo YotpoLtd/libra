@@ -41,6 +41,9 @@ func Scale(client *api.Client, jobID, group string, scale, min, max int) (string
 			oldCount := *tg.Count
 			if *job.Status == "dead" {
 				newCount = 1
+				desiredJobStopStatus := false
+
+				job.Stop = &desiredJobStopStatus
 			} else {
 				newCount = oldCount + scale
 			}
@@ -104,6 +107,9 @@ func SetCapacity(client *api.Client, jobID, groupID string, count, min, max int)
 		}
 	}
 
+	desiredJobStopStatus := false
+
+	job.Stop = &desiredJobStopStatus
 	job.TaskGroups[0].Count = &count
 	resp, _, _ := client.Jobs().Register(job, &api.WriteOptions{})
 	return resp.EvalID, count, nil
