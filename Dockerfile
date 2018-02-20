@@ -1,4 +1,4 @@
-FROM golang:1.9.2 as builder
+FROM golang:1.10 as builder
 
 # Install Glide
 ENV GLIDE_VERSION 0.13.1
@@ -32,7 +32,7 @@ RUN apk --no-cache add ca-certificates
 COPY --from=builder /go/bin/libra /bin/libra
 
 # Expose service app ports
-EXPOSE 8080
+EXPOSE 8646
 
 # Start the service app. Note we have to use the array style because this container does not include /bin/sh
 ENTRYPOINT ["/bin/libra"]
