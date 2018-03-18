@@ -47,8 +47,12 @@ func Scale(client *api.Client, jobID, group string, scale, min, max int) (string
 			} else {
 				newCount = oldCount + scale
 			}
-			if newCount < min || newCount > max {
-				return "", oldCount, errors.New("the new group count (" + strconv.Itoa(newCount) + ") is outside of the configured range (" + strconv.Itoa(min) + "-" + strconv.Itoa(max) + ")")
+			if newCount > oldCount && newCount > max {
+				return "", oldCount, errors.New("the new group count (" + strconv.Itoa(newCount) + ") is greater than max (" + strconv.Itoa(max) + ")")
+
+			}
+			if newCount < oldCount && newCount < min {
+				return "", oldCount, errors.New("the new group count (" + strconv.Itoa(newCount) + ") is less than min (" + strconv.Itoa(min) + ")")
 			}
 			tg.Count = &newCount
 		}
@@ -101,6 +105,7 @@ func SetCapacity(client *api.Client, jobID, groupID string, count, min, max int)
 		log.Printf("[DEBUG] job %s is dead, setting count to 1 and state to running", *job.Name)
 		count = 1
 	} else {
+		// TODO: fix GroupID
 		oldCount := *job.TaskGroups[0].Count
 		if count < min || count > max {
 			return "", oldCount, errors.New("the desired count (" + strconv.Itoa(count) + ") is outside of the configured range (" + strconv.Itoa(min) + "-" + strconv.Itoa(max) + ")")
