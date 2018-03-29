@@ -83,15 +83,15 @@ func InitializeBackends(backends map[string]structs.Backend) (ConfiguredBackends
 			var influxDbUserName, influxDbPassword string
 
 			if envInfluxDbUserName := os.Getenv("INFLUX_USERNAME"); envInfluxDbUserName != "" {
-				influxDbUserName = conf.Username
-			} else {
 				influxDbUserName = envInfluxDbUserName
+			} else {
+				influxDbUserName = conf.Username
 			}
 
 			if envInfluxDbPassword := os.Getenv("INFLUX_PASSWORD"); envInfluxDbPassword != "" {
-				influxDbPassword = conf.Username
-			} else {
 				influxDbPassword = envInfluxDbPassword
+			} else {
+				influxDbPassword = conf.Password
 			}
 
 			userAgent := conf.UserAgent
