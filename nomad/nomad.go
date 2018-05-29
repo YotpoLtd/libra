@@ -6,7 +6,7 @@ import (
 	"os"
 	"strconv"
 
-	api "github.com/hashicorp/nomad/api"
+	"github.com/hashicorp/nomad/api"
 )
 
 // NewClient will create a instance of a nomad API Client
@@ -31,38 +31,46 @@ func NewClient(c Config) (*api.Client, error) {
 // Scale increases or decreases the count of a task group
 func Scale(client *api.Client, jobID, group string, scale, min, max int) (string, int, error) {
 	job, _, err := client.Jobs().Info(jobID, &api.QueryOptions{})
-	newCount := -1
 	if err != nil {
 		return "", 0, err
 	}
+	var newCount int
+	newCount = 0
 
 	for _, tg := range job.TaskGroups {
 		if *tg.Name == group {
 			oldCount := *tg.Count
 			if *job.Status == "dead" {
-				newCount = 1
-				desiredJobStopStatus := false
+				if scale > 0 {
+					newCount = scale
+					desiredJobStopStatus := false
 
-				job.Stop = &desiredJobStopStatus
+					job.Stop = &desiredJobStopStatus
+				}
 			} else {
 				newCount = oldCount + scale
 			}
-			if newCount > oldCount && newCount > max {
-				return "", oldCount, errors.New("the new group count (" + strconv.Itoa(newCount) + ") is greater than max (" + strconv.Itoa(max) + ")")
-
+			if newCount > max {
+				log.Printf("[DEBUG] New count %d for %s/%s is bigger then max [%d], using max", newCount, *job.Name, *tg.Name, max)
+				newCount = max
 			}
-			if newCount < oldCount && newCount < min {
-				return "", oldCount, errors.New("the new group count (" + strconv.Itoa(newCount) + ") is less than min (" + strconv.Itoa(min) + ")")
+			if newCount < min {
+				log.Printf("[DEBUG] New count %d for %s/%s is smaller then min [%d], using min", newCount, *job.Name, *tg.Name, min)
+				newCount = min
+			}
+			if oldCount == newCount {
+				log.Printf("[DEBUG] New count %d for %s/%s is equal to current", newCount, *job.Name, *tg.Name)
+				return "", newCount, nil
 			}
 			tg.Count = &newCount
 		}
 	}
-	if newCount > -1 {
-		resp, _, _ := client.Jobs().Register(job, &api.WriteOptions{})
-		return resp.EvalID, newCount, nil
-	} else {
-		return "", -1, errors.New("could not find task group " + group + " in job " + jobID)
+
+	resp, _, err := client.Jobs().Register(job, &api.WriteOptions{})
+	if err != nil {
+		return "", 0, err
 	}
+	return resp.EvalID, newCount, err
 }
 
 // Restart restarts a job to get the latest docker image
