@@ -7,8 +7,10 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/influxdata/influxdb/logger"
 	"github.com/influxdata/influxdb/models"
@@ -28,6 +30,7 @@ type Command struct {
 	databaseFilter  string
 	retentionFilter string
 	shardFilter     string
+	maxLogFileSize  int64
 }
 
 // NewCommand returns a new instance of Command.
@@ -47,12 +50,14 @@ func (cmd *Command) Run(args ...string) error {
 	fs.StringVar(&cmd.databaseFilter, "database", "", "optional: database name")
 	fs.StringVar(&cmd.retentionFilter, "retention", "", "optional: retention policy")
 	fs.StringVar(&cmd.shardFilter, "shard", "", "optional: shard id")
+	fs.Int64Var(&cmd.maxLogFileSize, "max-log-file-size", tsdb.DefaultMaxIndexLogFileSize, "optional: maximum log file size")
 	fs.BoolVar(&cmd.Verbose, "v", false, "verbose")
 	fs.SetOutput(cmd.Stdout)
 	if err := fs.Parse(args); err != nil {
 		return err
 	} else if fs.NArg() > 0 || *dataDir == "" || *walDir == "" {
-		return flag.ErrHelp
+		fs.Usage()
+		return nil
 	}
 	cmd.Logger = logger.New(cmd.Stderr)
 
@@ -60,6 +65,19 @@ func (cmd *Command) Run(args ...string) error {
 }
 
 func (cmd *Command) run(dataDir, walDir string) error {
+	// Verify the user actually wants to run as root.
+	if isRoot() {
+		fmt.Println("You are currently running as root. This will build your")
+		fmt.Println("index files with root ownership and will be inaccessible")
+		fmt.Println("if you run influxd as a non-root user. You should run")
+		fmt.Println("buildtsi as the same user you are running influxd.")
+		fmt.Print("Are you sure you want to continue? (y/N): ")
+		var answer string
+		if fmt.Scanln(&answer); !strings.HasPrefix(strings.TrimSpace(strings.ToLower(answer)), "y") {
+			return fmt.Errorf("Operation aborted.")
+		}
+	}
+
 	fis, err := ioutil.ReadDir(dataDir)
 	if err != nil {
 		return err
@@ -115,7 +133,7 @@ func (cmd *Command) processDatabase(dbName, dataDir, walDir string) error {
 }
 
 func (cmd *Command) processRetentionPolicy(sfile *tsdb.SeriesFile, dbName, rpName, dataDir, walDir string) error {
-	cmd.Logger.Info("rebuilding retention policy", zap.String("db", dbName), zap.String("rp", rpName))
+	cmd.Logger.Info("rebuilding retention policy", logger.Database(dbName), logger.RetentionPolicy(rpName))
 
 	fis, err := ioutil.ReadDir(dataDir)
 	if err != nil {
@@ -142,7 +160,7 @@ func (cmd *Command) processRetentionPolicy(sfile *tsdb.SeriesFile, dbName, rpNam
 }
 
 func (cmd *Command) processShard(sfile *tsdb.SeriesFile, dbName, rpName string, shardID uint64, dataDir, walDir string) error {
-	cmd.Logger.Info("rebuilding shard", zap.String("db", dbName), zap.String("rp", rpName), zap.Uint64("shard", shardID))
+	cmd.Logger.Info("rebuilding shard", logger.Database(dbName), logger.RetentionPolicy(rpName), logger.Shard(shardID))
 
 	// Check if shard already has a TSI index.
 	indexPath := filepath.Join(dataDir, "index")
@@ -172,7 +190,7 @@ func (cmd *Command) processShard(sfile *tsdb.SeriesFile, dbName, rpName string, 
 	}
 
 	// Open TSI index in temporary path.
-	tsiIndex := tsi1.NewIndex(sfile, tsi1.WithPath(tmpPath))
+	tsiIndex := tsi1.NewIndex(sfile, dbName, tsi1.WithPath(tmpPath), tsi1.WithMaximumLogFileSize(cmd.maxLogFileSize))
 	tsiIndex.WithLogger(cmd.Logger)
 	cmd.Logger.Info("opening tsi index in temporary location", zap.String("path", tmpPath))
 	if err := tsiIndex.Open(); err != nil {
@@ -191,7 +209,7 @@ func (cmd *Command) processShard(sfile *tsdb.SeriesFile, dbName, rpName string, 
 
 	// Write out wal files.
 	cmd.Logger.Info("building cache from wal files")
-	cache := tsm1.NewCache(tsdb.DefaultCacheMaxMemorySize, "")
+	cache := tsm1.NewCache(tsdb.DefaultCacheMaxMemorySize)
 	loader := tsm1.NewCacheLoader(walPaths)
 	loader.WithLogger(cmd.Logger)
 	if err := loader.Load(cache); err != nil {
@@ -207,7 +225,7 @@ func (cmd *Command) processShard(sfile *tsdb.SeriesFile, dbName, rpName string, 
 			cmd.Logger.Info("series", zap.String("name", string(name)), zap.String("tags", tags.String()))
 		}
 
-		if err := tsiIndex.CreateSeriesIfNotExists(nil, []byte(name), tags); err != nil {
+		if err := tsiIndex.CreateSeriesIfNotExists(seriesKey, []byte(name), tags); err != nil {
 			return fmt.Errorf("cannot create series: %s %s (%s)", name, tags.String(), err)
 		}
 	}
@@ -251,7 +269,7 @@ func (cmd *Command) processTSMFile(index *tsi1.Index, path string) error {
 			cmd.Logger.Info("series", zap.String("name", string(name)), zap.String("tags", tags.String()))
 		}
 
-		if err := index.CreateSeriesIfNotExists(nil, []byte(name), tags); err != nil {
+		if err := index.CreateSeriesIfNotExists(seriesKey, []byte(name), tags); err != nil {
 			return fmt.Errorf("cannot create series: %s %s (%s)", name, tags.String(), err)
 		}
 	}
@@ -288,4 +306,9 @@ func (cmd *Command) collectWALFiles(path string) ([]string, error) {
 		paths = append(paths, filepath.Join(path, fi.Name()))
 	}
 	return paths, nil
+}
+
+func isRoot() bool {
+	user, _ := user.Current()
+	return user != nil && user.Username == "root"
 }

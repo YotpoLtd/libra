@@ -21,6 +21,7 @@ import (
 	"github.com/hashicorp/nomad/client/allocdir"
 	"github.com/hashicorp/nomad/client/config"
 	"github.com/hashicorp/nomad/client/driver/env"
+	"github.com/hashicorp/nomad/client/fingerprint"
 	cstructs "github.com/hashicorp/nomad/client/structs"
 	"github.com/hashicorp/nomad/client/testutil"
 	"github.com/hashicorp/nomad/helper/uuid"
@@ -164,6 +165,7 @@ func TestDockerDriver_Fingerprint(t *testing.T) {
 	if !tu.IsTravis() {
 		t.Parallel()
 	}
+
 	ctx := testDockerDriverContexts(t, &structs.Task{Name: "foo", Driver: "docker", Resources: basicResources})
 	//ctx.DriverCtx.config.Options = map[string]string{"docker.cleanup.image": "false"}
 	defer ctx.AllocDir.Destroy()
@@ -223,10 +225,11 @@ func TestDockerDriver_Fingerprint_Bridge(t *testing.T) {
 
 	conf := testConfig(t)
 	conf.Node = mock.Node()
-	dd := NewDockerDriver(NewDriverContext("", "", conf, conf.Node, testLogger(), nil))
+	dd := NewDockerDriver(NewDriverContext("", "", "", "", conf, conf.Node, testLogger(), nil))
 
 	request := &cstructs.FingerprintRequest{Config: conf, Node: conf.Node}
 	var response cstructs.FingerprintResponse
+
 	err = dd.Fingerprint(request, &response)
 	if err != nil {
 		t.Fatalf("error fingerprinting docker: %v", err)
@@ -249,6 +252,44 @@ func TestDockerDriver_Fingerprint_Bridge(t *testing.T) {
 		t.Fatalf("expected bridge ip %q but found: %q", expectedAddr, found)
 	}
 	t.Logf("docker bridge ip: %q", attributes["driver.docker.bridge_ip"])
+}
+
+func TestDockerDriver_Check_DockerHealthStatus(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
+	if !testutil.DockerIsConnected(t) {
+		t.Skip("requires Docker")
+	}
+	if runtime.GOOS != "linux" {
+		t.Skip("expect only on linux")
+	}
+
+	require := require.New(t)
+
+	expectedAddr, err := sockaddr.GetInterfaceIP("docker0")
+	if err != nil {
+		t.Fatalf("unable to get ip for docker0: %v", err)
+	}
+	if expectedAddr == "" {
+		t.Fatalf("unable to get ip for docker bridge")
+	}
+
+	conf := testConfig(t)
+	conf.Node = mock.Node()
+	dd := NewDockerDriver(NewDriverContext("", "", "", "", conf, conf.Node, testLogger(), nil))
+
+	request := &cstructs.HealthCheckRequest{}
+	var response cstructs.HealthCheckResponse
+
+	dc, ok := dd.(fingerprint.HealthCheck)
+	require.True(ok)
+	err = dc.HealthCheck(request, &response)
+	require.Nil(err)
+
+	driverInfo := response.Drivers["docker"]
+	require.NotNil(driverInfo)
+	require.True(driverInfo.Healthy)
 }
 
 func TestDockerDriver_StartOpen_Wait(t *testing.T) {
@@ -722,6 +763,7 @@ func TestDockerDriver_StartNVersions(t *testing.T) {
 	task2, _, _ := dockerTask(t)
 	task2.Config["image"] = "busybox:musl"
 	task2.Config["load"] = "busybox_musl.tar"
+	task2.Config["args"] = []string{"-l", "-p", "0"}
 
 	task3, _, _ := dockerTask(t)
 	task3.Config["image"] = "busybox:glibc"
@@ -732,6 +774,7 @@ func TestDockerDriver_StartNVersions(t *testing.T) {
 	handles := make([]DriverHandle, len(taskList))
 
 	t.Logf("Starting %d tasks", len(taskList))
+	client := newTestDockerClient(t)
 
 	// Let's spin up a bunch of things
 	for idx, task := range taskList {
@@ -753,6 +796,7 @@ func TestDockerDriver_StartNVersions(t *testing.T) {
 			continue
 		}
 		handles[idx] = resp.Handle
+		waitForExist(t, client, resp.Handle.(*DockerHandle))
 	}
 
 	t.Log("All tasks are started. Terminating...")
@@ -1049,6 +1093,30 @@ func TestDockerDriver_ForcePull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
+}
+
+func TestDockerDriver_ForcePull_RepoDigest(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
+	if !testutil.DockerIsConnected(t) {
+		t.Skip("Docker not connected")
+	}
+
+	task, _, _ := dockerTask(t)
+	task.Config["load"] = ""
+	task.Config["image"] = "library/busybox@sha256:58ac43b2cc92c687a32c8be6278e50a063579655fe3090125dcb2af0ff9e1a64"
+	localDigest := "sha256:8ac48589692a53a9b8c2d1ceaa6b402665aa7fe667ba51ccc03002300856d8c7"
+	task.Config["force_pull"] = "true"
+
+	client, handle, cleanup := dockerSetup(t, task)
+	defer cleanup()
+
+	waitForExist(t, client, handle)
+
+	container, err := client.InspectContainer(handle.ContainerID())
+	require.NoError(t, err)
+	require.Equal(t, localDigest, container.Image)
 }
 
 func TestDockerDriver_SecurityOpt(t *testing.T) {
@@ -1618,25 +1686,29 @@ func setupDockerVolumes(t *testing.T, cfg *config.Config, hostpath string) (*str
 		allocDir.Destroy()
 		t.Fatalf("failed to build task dir: %v", err)
 	}
+	copyImage(t, taskDir, "busybox.tar")
 
+	// Setup driver
 	alloc := mock.Alloc()
+	logger := testLogger()
+	emitter := func(m string, args ...interface{}) {
+		logger.Printf("[EVENT] "+m, args...)
+	}
+	driverCtx := NewDriverContext(alloc.Job.Name, alloc.TaskGroup, task.Name, alloc.ID, cfg, cfg.Node, testLogger(), emitter)
+	driver := NewDockerDriver(driverCtx)
+
+	// Setup execCtx
 	envBuilder := env.NewBuilder(cfg.Node, alloc, task, cfg.Region)
+	SetEnvvars(envBuilder, driver.FSIsolation(), taskDir, cfg)
 	execCtx := NewExecContext(taskDir, envBuilder.Build())
+
+	// Setup cleanup function
 	cleanup := func() {
 		allocDir.Destroy()
 		if filepath.IsAbs(hostpath) {
 			os.RemoveAll(hostpath)
 		}
 	}
-
-	logger := testLogger()
-	emitter := func(m string, args ...interface{}) {
-		logger.Printf("[EVENT] "+m, args...)
-	}
-	driverCtx := NewDriverContext(task.Name, alloc.ID, cfg, cfg.Node, testLogger(), emitter)
-	driver := NewDockerDriver(driverCtx)
-	copyImage(t, taskDir, "busybox.tar")
-
 	return task, driver, execCtx, hostfile, cleanup
 }
 
@@ -2295,4 +2367,159 @@ func TestDockerDriver_ReadonlyRootfs(t *testing.T) {
 	assert.Nil(t, err, "Error inspecting container: %v", err)
 
 	assert.True(t, container.HostConfig.ReadonlyRootfs, "ReadonlyRootfs option not set")
+}
+
+// fakeDockerClient can be used in places that accept an interface for the
+// docker client such as createContainer.
+type fakeDockerClient struct{}
+
+func (fakeDockerClient) CreateContainer(docker.CreateContainerOptions) (*docker.Container, error) {
+	return nil, fmt.Errorf("volume is attached on another node")
+}
+func (fakeDockerClient) InspectContainer(id string) (*docker.Container, error) {
+	panic("not implemented")
+}
+func (fakeDockerClient) ListContainers(docker.ListContainersOptions) ([]docker.APIContainers, error) {
+	panic("not implemented")
+}
+func (fakeDockerClient) RemoveContainer(opts docker.RemoveContainerOptions) error {
+	panic("not implemented")
+}
+
+// TestDockerDriver_VolumeError asserts volume related errors when creating a
+// container are recoverable.
+func TestDockerDriver_VolumeError(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
+
+	// setup
+	task, _, _ := dockerTask(t)
+	tctx := testDockerDriverContexts(t, task)
+	driver := NewDockerDriver(tctx.DriverCtx).(*DockerDriver)
+	driver.driverConfig = &DockerDriverConfig{ImageName: "test"}
+
+	// assert volume error is recoverable
+	_, err := driver.createContainer(fakeDockerClient{}, docker.CreateContainerOptions{})
+	require.True(t, structs.IsRecoverable(err))
+}
+
+func TestDockerDriver_AdvertiseIPv6Address(t *testing.T) {
+	if !tu.IsTravis() {
+		t.Parallel()
+	}
+	if !testutil.DockerIsConnected(t) {
+		t.Skip("Docker not connected")
+	}
+
+	expectedPrefix := "2001:db8:1::242:ac11"
+	expectedAdvertise := true
+	task := &structs.Task{
+		Name:   "nc-demo",
+		Driver: "docker",
+		Config: map[string]interface{}{
+			"image":   "busybox",
+			"load":    "busybox.tar",
+			"command": "/bin/nc",
+			"args":    []string{"-l", "127.0.0.1", "-p", "0"},
+			"advertise_ipv6_address": expectedAdvertise,
+		},
+		Resources: &structs.Resources{
+			MemoryMB: 256,
+			CPU:      512,
+		},
+		LogConfig: &structs.LogConfig{
+			MaxFiles:      10,
+			MaxFileSizeMB: 10,
+		},
+	}
+
+	client := newTestDockerClient(t)
+
+	// Make sure IPv6 is enabled
+	net, err := client.NetworkInfo("bridge")
+	if err != nil {
+		t.Skip("error retrieving bridge network information, skipping")
+	}
+	if net == nil || !net.EnableIPv6 {
+		t.Skip("IPv6 not enabled on bridge network, skipping")
+	}
+
+	tctx := testDockerDriverContexts(t, task)
+	driver := NewDockerDriver(tctx.DriverCtx)
+	copyImage(t, tctx.ExecCtx.TaskDir, "busybox.tar")
+	defer tctx.AllocDir.Destroy()
+
+	presp, err := driver.Prestart(tctx.ExecCtx, task)
+	defer driver.Cleanup(tctx.ExecCtx, presp.CreatedResources)
+	if err != nil {
+		t.Fatalf("Error in prestart: %v", err)
+	}
+
+	sresp, err := driver.Start(tctx.ExecCtx, task)
+	if err != nil {
+		t.Fatalf("Error in start: %v", err)
+	}
+
+	if sresp.Handle == nil {
+		t.Fatalf("handle is nil\nStack\n%s", debug.Stack())
+	}
+
+	assert.Equal(t, expectedAdvertise, sresp.Network.AutoAdvertise, "Wrong autoadvertise. Expect: %s, got: %s", expectedAdvertise, sresp.Network.AutoAdvertise)
+
+	if !strings.HasPrefix(sresp.Network.IP, expectedPrefix) {
+		t.Fatalf("Got IP address %q want ip address with prefix %q", sresp.Network.IP, expectedPrefix)
+	}
+
+	defer sresp.Handle.Kill()
+	handle := sresp.Handle.(*DockerHandle)
+
+	waitForExist(t, client, handle)
+
+	container, err := client.InspectContainer(handle.ContainerID())
+	if err != nil {
+		t.Fatalf("Error inspecting container: %v", err)
+	}
+
+	if !strings.HasPrefix(container.NetworkSettings.GlobalIPv6Address, expectedPrefix) {
+		t.Fatalf("Got GlobalIPv6address %s want GlobalIPv6address with prefix %s", expectedPrefix, container.NetworkSettings.GlobalIPv6Address)
+	}
+}
+
+func TestParseDockerImage(t *testing.T) {
+	tests := []struct {
+		Image string
+		Repo  string
+		Tag   string
+	}{
+		{"library/hello-world:1.0", "library/hello-world", "1.0"},
+		{"library/hello-world", "library/hello-world", "latest"},
+		{"library/hello-world:latest", "library/hello-world", "latest"},
+		{"library/hello-world@sha256:f5233545e43561214ca4891fd1157e1c3c563316ed8e237750d59bde73361e77", "library/hello-world@sha256:f5233545e43561214ca4891fd1157e1c3c563316ed8e237750d59bde73361e77", ""},
+	}
+	for _, test := range tests {
+		t.Run(test.Image, func(t *testing.T) {
+			repo, tag := parseDockerImage(test.Image)
+			require.Equal(t, test.Repo, repo)
+			require.Equal(t, test.Tag, tag)
+		})
+	}
+}
+
+func TestDockerImageRef(t *testing.T) {
+	tests := []struct {
+		Image string
+		Repo  string
+		Tag   string
+	}{
+		{"library/hello-world:1.0", "library/hello-world", "1.0"},
+		{"library/hello-world:latest", "library/hello-world", "latest"},
+		{"library/hello-world@sha256:f5233545e43561214ca4891fd1157e1c3c563316ed8e237750d59bde73361e77", "library/hello-world@sha256:f5233545e43561214ca4891fd1157e1c3c563316ed8e237750d59bde73361e77", ""},
+	}
+	for _, test := range tests {
+		t.Run(test.Image, func(t *testing.T) {
+			image := dockerImageRef(test.Repo, test.Tag)
+			require.Equal(t, test.Image, image)
+		})
+	}
 }

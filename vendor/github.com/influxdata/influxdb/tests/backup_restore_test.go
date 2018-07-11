@@ -12,12 +12,16 @@ import (
 
 	"github.com/influxdata/influxdb/cmd/influxd/backup"
 	"github.com/influxdata/influxdb/cmd/influxd/restore"
+	"github.com/influxdata/influxdb/toml"
+	"strings"
 )
 
 func TestServer_BackupAndRestore(t *testing.T) {
 	config := NewConfig()
 	config.Data.Engine = "tsm1"
 	config.BindAddress = freePort()
+	config.Monitor.StoreEnabled = true
+	config.Monitor.StoreInterval = toml.Duration(time.Second)
 
 	fullBackupDir, _ := ioutil.TempDir("", "backup")
 	defer os.RemoveAll(fullBackupDir)
@@ -30,9 +34,9 @@ func TestServer_BackupAndRestore(t *testing.T) {
 
 	db := "mydb"
 	rp := "forever"
-	expected := `{"results":[{"statement_id":0,"series":[{"name":"myseries","columns":["time","host","value"],"values":[["1970-01-01T00:00:00.001Z","A",23],["1970-01-01T00:00:00.005Z","B",24],["1970-01-01T00:00:00.009Z","C",25]]}]}]}`
-	partialExpected := `{"results":[{"statement_id":0,"series":[{"name":"myseries","columns":["time","host","value"],"values":[["1970-01-01T00:00:00.001Z","A",23],["1970-01-01T00:00:00.005Z","B",24]]}]}]}`
 
+	expected := `{"results":[{"statement_id":0,"series":[{"name":"myseries","columns":["time","host","value"],"values":[["1970-01-01T00:00:00.001Z","A",23],["1970-01-01T00:00:00.005Z","B",24],["1970-01-01T00:00:00.006Z","C",22],["1970-01-01T00:00:00.007Z","C",23],["1970-01-01T00:00:00.008Z","C",24],["1970-01-01T00:00:00.009000001Z","D",24],["1970-01-01T00:00:00.009000002Z","D",25],["1970-01-01T00:00:00.009000003Z","D",26]]}]}]}`
+	partialExpected := `{"results":[{"statement_id":0,"series":[{"name":"myseries","columns":["time","host","value"],"values":[["1970-01-01T00:00:00.001Z","A",23],["1970-01-01T00:00:00.005Z","B",24],["1970-01-01T00:00:00.006Z","C",22],["1970-01-01T00:00:00.007Z","C",23],["1970-01-01T00:00:00.008Z","C",24]]}]}]}`
 	// set the cache snapshot size low so that a single point will cause TSM file creation
 	config.Data.CacheSnapshotMemorySize = 1
 
@@ -62,7 +66,27 @@ func TestServer_BackupAndRestore(t *testing.T) {
 		// wait for the snapshot to write
 		time.Sleep(time.Second)
 
-		if _, err := s.Write(db, rp, "myseries,host=C value=25 9000000", nil); err != nil {
+		if _, err := s.Write(db, rp, "myseries,host=C value=22 6000000", nil); err != nil {
+			t.Fatalf("failed to write: %s", err)
+		}
+
+		if _, err := s.Write(db, rp, "myseries,host=C value=23 7000000", nil); err != nil {
+			t.Fatalf("failed to write: %s", err)
+		}
+
+		if _, err := s.Write(db, rp, "myseries,host=C value=24 8000000", nil); err != nil {
+			t.Fatalf("failed to write: %s", err)
+		}
+
+		if _, err := s.Write(db, rp, "myseries,host=D value=24 9000001", nil); err != nil {
+			t.Fatalf("failed to write: %s", err)
+		}
+
+		if _, err := s.Write(db, rp, "myseries,host=D value=25 9000002", nil); err != nil {
+			t.Fatalf("failed to write: %s", err)
+		}
+
+		if _, err := s.Write(db, rp, "myseries,host=D value=26 9000003", nil); err != nil {
 			t.Fatalf("failed to write: %s", err)
 		}
 
@@ -81,6 +105,24 @@ func TestServer_BackupAndRestore(t *testing.T) {
 			t.Fatalf("query results wrong:\n\texp: %s\n\tgot: %s", expected, res)
 		}
 
+		i := 0
+		for {
+			res, err = s.Query(`SHOW DATABASES`)
+			if err != nil {
+				t.Fatalf("error querying: %s", err.Error())
+			}
+
+			if strings.Contains(res, "_internal") {
+				break
+			}
+			i++
+			if i > 90 {
+				t.Fatal("_internal not created within 90 seconds")
+			}
+			// technically not necessary, but no reason to crush the CPU for polling
+			time.Sleep(time.Second)
+		}
+
 		// now backup
 		cmd := backup.NewCommand()
 		_, port, err := net.SplitHostPort(config.BindAddress)
@@ -92,11 +134,13 @@ func TestServer_BackupAndRestore(t *testing.T) {
 			t.Fatalf("error backing up: %s, hostAddress: %s", err.Error(), hostAddress)
 		}
 
-		if err := cmd.Run("-host", hostAddress, "-database", "mydb", "-start", "1970-01-01T00:00:00.001Z", "-end", "1970-01-01T00:00:00.007Z", partialBackupDir); err != nil {
+		time.Sleep(time.Second)
+		if err := cmd.Run("-host", hostAddress, "-database", "mydb", "-start", "1970-01-01T00:00:00.001Z", "-end", "1970-01-01T00:00:00.009Z", partialBackupDir); err != nil {
 			t.Fatalf("error backing up: %s, hostAddress: %s", err.Error(), hostAddress)
 		}
 
-		if err := cmd.Run("-portable", "-host", hostAddress, "-database", "mydb", "-start", "1970-01-01T00:00:00.001Z", "-end", "1970-01-01T00:00:00.007Z", portableBackupDir); err != nil {
+		// also testing short-form flag here
+		if err := cmd.Run("-portable", "-host", hostAddress, "-db", "mydb", "-start", "1970-01-01T00:00:00.001Z", "-end", "1970-01-01T00:00:00.009Z", portableBackupDir); err != nil {
 			t.Fatalf("error backing up: %s, hostAddress: %s", err.Error(), hostAddress)
 		}
 

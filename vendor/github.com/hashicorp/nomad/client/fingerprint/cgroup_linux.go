@@ -9,6 +9,10 @@ import (
 	"github.com/opencontainers/runc/libcontainer/cgroups"
 )
 
+const (
+	cgroupAvailable = "available"
+)
+
 // FindCgroupMountpointDir is used to find the cgroup mount point on a Linux
 // system.
 func FindCgroupMountpointDir() (string, error) {
@@ -26,7 +30,7 @@ func FindCgroupMountpointDir() (string, error) {
 	return mount, nil
 }
 
-// Fingerprint tries to find a valid cgroup moint point
+// Fingerprint tries to find a valid cgroup mount point
 func (f *CGroupFingerprint) Fingerprint(req *cstructs.FingerprintRequest, resp *cstructs.FingerprintResponse) error {
 	mount, err := f.mountPointDetector.MountPoint()
 	if err != nil {

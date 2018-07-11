@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"sort"
 	"sync"
+	"unsafe"
 
 	"github.com/influxdata/influxdb/models"
 	"github.com/influxdata/influxdb/pkg/bytesutil"
@@ -36,7 +37,7 @@ func init() {
 	tsdb.NewInmemIndex = func(name string, sfile *tsdb.SeriesFile) (interface{}, error) { return NewIndex(name, sfile), nil }
 
 	tsdb.RegisterIndex(IndexName, func(id uint64, database, path string, seriesIDSet *tsdb.SeriesIDSet, sfile *tsdb.SeriesFile, opt tsdb.EngineOptions) tsdb.Index {
-		return NewShardIndex(id, database, path, seriesIDSet, sfile, opt)
+		return NewShardIndex(id, seriesIDSet, opt)
 	})
 }
 
@@ -54,8 +55,8 @@ type Index struct {
 	measurements map[string]*measurement // measurement name to object and index
 	series       map[string]*series      // map series key to the Series object
 
-	seriesSketch, seriesTSSketch             *hll.Plus
-	measurementsSketch, measurementsTSSketch *hll.Plus
+	seriesSketch, seriesTSSketch             estimator.Sketch
+	measurementsSketch, measurementsTSSketch estimator.Sketch
 
 	// Mutex to control rebuilds of the index
 	rebuildQueue sync.Mutex
@@ -76,6 +77,40 @@ func NewIndex(database string, sfile *tsdb.SeriesFile) *Index {
 	index.measurementsTSSketch = hll.NewDefaultPlus()
 
 	return index
+}
+
+func (i *Index) UniqueReferenceID() uintptr {
+	return uintptr(unsafe.Pointer(i))
+}
+
+// Bytes estimates the memory footprint of this Index, in bytes.
+func (i *Index) Bytes() int {
+	var b int
+	i.mu.RLock()
+	b += 24 // mu RWMutex is 24 bytes
+	b += int(unsafe.Sizeof(i.database)) + len(i.database)
+	// Do not count SeriesFile because it belongs to the code that constructed this Index.
+	if i.fieldset != nil {
+		b += int(unsafe.Sizeof(i.fieldset)) + i.fieldset.Bytes()
+	}
+	b += int(unsafe.Sizeof(i.fieldset))
+	for k, v := range i.measurements {
+		b += int(unsafe.Sizeof(k)) + len(k)
+		b += int(unsafe.Sizeof(v)) + v.bytes()
+	}
+	b += int(unsafe.Sizeof(i.measurements))
+	for k, v := range i.series {
+		b += int(unsafe.Sizeof(k)) + len(k)
+		b += int(unsafe.Sizeof(v)) + v.bytes()
+	}
+	b += int(unsafe.Sizeof(i.series))
+	b += int(unsafe.Sizeof(i.seriesSketch)) + i.seriesSketch.Bytes()
+	b += int(unsafe.Sizeof(i.seriesTSSketch)) + i.seriesTSSketch.Bytes()
+	b += int(unsafe.Sizeof(i.measurementsSketch)) + i.measurementsSketch.Bytes()
+	b += int(unsafe.Sizeof(i.measurementsTSSketch)) + i.measurementsTSSketch.Bytes()
+	b += 8 // rebuildQueue Mutex is 8 bytes
+	i.mu.RUnlock()
+	return b
 }
 
 func (i *Index) Type() string      { return IndexName }
@@ -151,8 +186,8 @@ func (i *Index) MeasurementIterator() (tsdb.MeasurementIterator, error) {
 
 // CreateSeriesListIfNotExists adds the series for the given measurement to the
 // index and sets its ID or returns the existing series object
-func (i *Index) CreateSeriesListIfNotExists(shardID uint64, seriesIDSet *tsdb.SeriesIDSet, keys, names [][]byte, tagsSlice []models.Tags, opt *tsdb.EngineOptions, ignoreLimits bool) error {
-	seriesIDs, err := i.sfile.CreateSeriesListIfNotExists(names, tagsSlice, nil)
+func (i *Index) CreateSeriesListIfNotExists(seriesIDSet *tsdb.SeriesIDSet, keys, names [][]byte, tagsSlice []models.Tags, opt *tsdb.EngineOptions, ignoreLimits bool) error {
+	seriesIDs, err := i.sfile.CreateSeriesListIfNotExists(names, tagsSlice)
 	if err != nil {
 		return err
 	}
@@ -222,7 +257,7 @@ func (i *Index) CreateSeriesListIfNotExists(shardID uint64, seriesIDSet *tsdb.Se
 	// Verify that the series will not exceed limit.
 	if !ignoreLimits {
 		if max := opt.Config.MaxSeriesPerDatabase; max > 0 && len(i.series)+len(keys) > max {
-			return errMaxSeriesPerDatabaseExceeded
+			return errMaxSeriesPerDatabaseExceeded{limit: opt.Config.MaxSeriesPerDatabase}
 		}
 	}
 
@@ -752,11 +787,6 @@ func (i *Index) DropSeriesGlobal(key []byte, ts int64) error {
 		return nil
 	}
 
-	// Series was recently created, we can't drop it.
-	if series.LastModified() >= ts {
-		return nil
-	}
-
 	// Update the tombstone sketch.
 	i.seriesTSSketch.Add([]byte(k))
 
@@ -766,7 +796,7 @@ func (i *Index) DropSeriesGlobal(key []byte, ts int64) error {
 	// Remove the measurement's reference.
 	series.Measurement.DropSeries(series)
 	// Mark the series as deleted.
-	series.Delete(ts)
+	series.Delete()
 
 	// If the measurement no longer has any series, remove it as well.
 	if !series.Measurement.HasSeries() {
@@ -777,7 +807,7 @@ func (i *Index) DropSeriesGlobal(key []byte, ts int64) error {
 }
 
 // TagSets returns a list of tag sets.
-func (i *Index) TagSets(shardID uint64, name []byte, opt query.IteratorOptions) ([]*query.TagSet, error) {
+func (i *Index) TagSets(shardSeriesIDs *tsdb.SeriesIDSet, name []byte, opt query.IteratorOptions) ([]*query.TagSet, error) {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 
@@ -786,7 +816,7 @@ func (i *Index) TagSets(shardID uint64, name []byte, opt query.IteratorOptions) 
 		return nil, nil
 	}
 
-	tagSets, err := mm.TagSets(shardID, opt)
+	tagSets, err := mm.TagSets(shardSeriesIDs, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -1036,11 +1066,13 @@ func (i *Index) assignExistingSeries(shardID uint64, seriesIDSet *tsdb.SeriesIDS
 		} else {
 			// Add the existing series to this shard's bitset, since this may
 			// be the first time the series is added to this shard.
-			seriesIDSet.Lock()
-			if !seriesIDSet.ContainsNoLock(ss.ID) {
-				seriesIDSet.AddNoLock(ss.ID)
+			if !seriesIDSet.Contains(ss.ID) {
+				seriesIDSet.Lock()
+				if !seriesIDSet.ContainsNoLock(ss.ID) {
+					seriesIDSet.AddNoLock(ss.ID)
+				}
+				seriesIDSet.Unlock()
 			}
-			seriesIDSet.Unlock()
 		}
 	}
 	i.mu.RUnlock()
@@ -1133,29 +1165,9 @@ func (idx *ShardIndex) CreateSeriesListIfNotExists(keys, names [][]byte, tagsSli
 		keys, names, tagsSlice = keys[:n], names[:n], tagsSlice[:n]
 	}
 
-	// Write entire batch at once if we are well below the max series threshold.
-	// Otherwise, insert one at a time until we reach an error.
-	idx.mu.RLock()
-	seriesN := len(idx.series)
-	idx.mu.RUnlock()
-
-	if max := idx.opt.Config.MaxSeriesPerDatabase; max > 0 && seriesN+len(keys) <= max {
-		if err := idx.Index.CreateSeriesListIfNotExists(idx.id, idx.seriesIDSet, keys, names, tagsSlice, &idx.opt, false); err != nil {
-			return err
-		}
-	} else {
-		for i := range keys {
-			if err := idx.Index.CreateSeriesListIfNotExists(idx.id, idx.seriesIDSet, keys[i:i+1], names[i:i+1], tagsSlice[i:i+1], &idx.opt, false); err == errMaxSeriesPerDatabaseExceeded {
-				if reason == "" {
-					reason = fmt.Sprintf("max-series-per-database limit exceeded: (%d)", idx.opt.Config.MaxSeriesPerDatabase)
-				}
-
-				droppedKeys = append(droppedKeys, keys[i])
-				continue
-			} else if err != nil {
-				return err
-			}
-		}
+	if err := idx.Index.CreateSeriesListIfNotExists(idx.seriesIDSet, keys, names, tagsSlice, &idx.opt, idx.opt.Config.MaxSeriesPerDatabase == 0); err != nil {
+		reason = err.Error()
+		droppedKeys = append(droppedKeys, keys...)
 	}
 
 	// Report partial writes back to shard.
@@ -1180,20 +1192,20 @@ func (idx *ShardIndex) SeriesN() int64 {
 }
 
 // InitializeSeries is called during start-up.
-// This works the same as CreateSeriesIfNotExists except it ignore limit errors.
-func (idx *ShardIndex) InitializeSeries(key, name []byte, tags models.Tags) error {
-	return idx.Index.CreateSeriesListIfNotExists(idx.id, idx.seriesIDSet, [][]byte{key}, [][]byte{name}, []models.Tags{tags}, &idx.opt, true)
+// This works the same as CreateSeriesListIfNotExists except it ignore limit errors.
+func (idx *ShardIndex) InitializeSeries(keys, names [][]byte, tags []models.Tags) error {
+	return idx.Index.CreateSeriesListIfNotExists(idx.seriesIDSet, keys, names, tags, &idx.opt, true)
 }
 
 // CreateSeriesIfNotExists creates the provided series on the index if it is not
 // already present.
 func (idx *ShardIndex) CreateSeriesIfNotExists(key, name []byte, tags models.Tags) error {
-	return idx.Index.CreateSeriesListIfNotExists(idx.id, idx.seriesIDSet, [][]byte{key}, [][]byte{name}, []models.Tags{tags}, &idx.opt, false)
+	return idx.Index.CreateSeriesListIfNotExists(idx.seriesIDSet, [][]byte{key}, [][]byte{name}, []models.Tags{tags}, &idx.opt, false)
 }
 
 // TagSets returns a list of tag sets based on series filtering.
 func (idx *ShardIndex) TagSets(name []byte, opt query.IteratorOptions) ([]*query.TagSet, error) {
-	return idx.Index.TagSets(idx.id, name, opt)
+	return idx.Index.TagSets(idx.seriesIDSet, name, opt)
 }
 
 // SeriesIDSet returns the bitset associated with the series ids.
@@ -1202,7 +1214,7 @@ func (idx *ShardIndex) SeriesIDSet() *tsdb.SeriesIDSet {
 }
 
 // NewShardIndex returns a new index for a shard.
-func NewShardIndex(id uint64, database, path string, seriesIDSet *tsdb.SeriesIDSet, sfile *tsdb.SeriesFile, opt tsdb.EngineOptions) tsdb.Index {
+func NewShardIndex(id uint64, seriesIDSet *tsdb.SeriesIDSet, opt tsdb.EngineOptions) tsdb.Index {
 	return &ShardIndex{
 		Index:       opt.InmemIndex.(*Index),
 		id:          id,
@@ -1286,4 +1298,10 @@ func (itr *seriesIDIterator) nextKeys() error {
 
 // errMaxSeriesPerDatabaseExceeded is a marker error returned during series creation
 // to indicate that a new series would exceed the limits of the database.
-var errMaxSeriesPerDatabaseExceeded = errors.New("max series per database exceeded")
+type errMaxSeriesPerDatabaseExceeded struct {
+	limit int
+}
+
+func (e errMaxSeriesPerDatabaseExceeded) Error() string {
+	return fmt.Sprintf("max-series-per-database limit exceeded: (%d)", e.limit)
+}

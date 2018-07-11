@@ -441,7 +441,7 @@ func (data *Data) CreateContinuousQuery(database, name, query string) error {
 func (data *Data) DropContinuousQuery(database, name string) error {
 	di := data.Database(database)
 	if di == nil {
-		return influxdb.ErrDatabaseNotFound(database)
+		return nil
 	}
 
 	for i := range di.ContinuousQueries {
@@ -450,7 +450,7 @@ func (data *Data) DropContinuousQuery(database, name string) error {
 			return nil
 		}
 	}
-	return ErrContinuousQueryNotFound
+	return nil
 }
 
 // validateURL returns an error if the URL does not have a port or uses a scheme other than UDP or HTTP.
@@ -1321,9 +1321,9 @@ func (a ShardGroupInfos) Less(i, j int) bool {
 	return iEnd.Before(jEnd)
 }
 
-// Contains returns true if the shard group contains data for the timestamp.
-func (sgi *ShardGroupInfo) Contains(timestamp time.Time) bool {
-	return !sgi.StartTime.After(timestamp) && sgi.EndTime.After(timestamp)
+// Contains returns true iif StartTime ≤ t < EndTime.
+func (sgi *ShardGroupInfo) Contains(t time.Time) bool {
+	return !t.Before(sgi.StartTime) && t.Before(sgi.EndTime)
 }
 
 // Overlaps returns whether the shard group contains data for the time range between min and max
@@ -1579,15 +1579,10 @@ type UserInfo struct {
 type User interface {
 	query.Authorizer
 	ID() string
-	IsAdmin() bool
 }
 
 func (u *UserInfo) ID() string {
 	return u.Name
-}
-
-func (u *UserInfo) IsAdmin() bool {
-	return u.Admin
 }
 
 // AuthorizeDatabase returns true if the user is authorized for the given privilege on the given database.
