@@ -7,6 +7,8 @@ import (
 	"strconv"
 
 	"github.com/hashicorp/nomad/api"
+	"github.com/hashicorp/nomad/nomad/structs"
+	_ "github.com/ugorji/go/codec"
 )
 
 // NewClient will create a instance of a nomad API Client
@@ -29,11 +31,27 @@ func NewClient(c Config) (*api.Client, error) {
 }
 
 // Scale increases or decreases the count of a task group
+// Returns EvaluationID (string), New Count (int), Error
 func Scale(client *api.Client, jobID, group string, scale, min, max int) (string, int, error) {
+
+	jobDeploymentStatus, _, err := client.Jobs().Deployments(jobID, &api.QueryOptions{})
+	if err != nil {
+		log.Printf("[ERROR] Failed to list deployments for job %s", jobID)
+		return "", 0, err
+	}
+
+	if len(jobDeploymentStatus) != 0 {
+		if jobDeploymentStatus[0].Status == structs.DeploymentStatusRunning {
+			log.Printf("[INFO] Job %s has active deployment (%s) running, skipping Scale", jobID, jobDeploymentStatus[0].ID)
+			return "", 0, nil
+		}
+	}
+
 	job, _, err := client.Jobs().Info(jobID, &api.QueryOptions{})
 	if err != nil {
 		return "", 0, err
 	}
+
 	var newCount int
 	newCount = 0
 
@@ -46,6 +64,7 @@ func Scale(client *api.Client, jobID, group string, scale, min, max int) (string
 					desiredJobStopStatus := false
 
 					job.Stop = &desiredJobStopStatus
+					log.Printf("[DEBUG] Bringing %s back to live", *job.Name)
 				}
 			} else {
 				newCount = oldCount + scale
@@ -59,8 +78,10 @@ func Scale(client *api.Client, jobID, group string, scale, min, max int) (string
 				newCount = min
 			}
 			if oldCount == newCount {
-				log.Printf("[DEBUG] New count %d for %s/%s is equal to current", newCount, *job.Name, *tg.Name)
-				return "", newCount, nil
+				if *job.Status != "dead" { // Checking if we didn't bring the job back to live
+					log.Printf("[DEBUG] New count %d for %s/%s is equal to current", newCount, *job.Name, *tg.Name)
+					return "", newCount, nil
+				}
 			}
 			tg.Count = &newCount
 		}
