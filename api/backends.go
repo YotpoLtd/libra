@@ -17,7 +17,7 @@ type BackendResponse struct {
 }
 
 func BackendsHandler(w rest.ResponseWriter, r *rest.Request) {
-	config, err := config.NewConfig(os.Getenv("LIBRA_CONFIG_DIR"))
+	config, err := config.ParseConfig(os.Getenv("LIBRA_CONFIG_DIR"))
 	if err != nil {
 		log.Errorf("Failed to read or parse config file: %s", err)
 		rest.Error(w, err.Error(), http.StatusInternalServerError)

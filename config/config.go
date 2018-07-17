@@ -11,22 +11,19 @@ import (
 )
 
 // NewConfig will return a Config struct
-func NewConfig(path string) (*RootConfig, error) {
-	// config, err := ioutil.ReadFile(file)
-	// if err != nil {
-	// 	log.Errorf("Failed to read file: %s", err)
-	// 	return nil, err
-	// }
-
-	configDir := path
+func ParseConfig(configDir string) (*RootConfig, error) {
 
 	fileList := []string{}
-	err := filepath.Walk(configDir, func(path string, f os.FileInfo, err error) error {
+	err := filepath.Walk(configDir, func(filePath string, f os.FileInfo, err error) error {
 		if !f.IsDir() {
-			fileList = append(fileList, path)
+			fileList = append(fileList, filePath)
 		}
 		return nil
 	})
+
+	if len(fileList) == 0 {
+		log.Errorf("Failed to find files in %s", configDir)
+	}
 
 	if err != nil {
 		log.Errorf("Failed to detect file: %s", err)

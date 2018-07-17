@@ -47,27 +47,23 @@ func Work(r *structs.Rule, nomadConf *nomad.Config, job, group string, min, max 
 	}
 
 	if change {
+		count := 0
 		switch r.Action {
 		case "increase_count":
-			count := r.ActionValue
+			count = r.ActionValue
 			log.Infof("Metric %s/%s was %.2f, which is above the threshold %.2f. Attempting to increase count of %s/%s by %d", r.MetricNamespace, r.MetricName, value, r.ComparisonValue, job, group, count)
-			_, _, err := nomad.Scale(n, job, group, count, min, max)
-			if err != nil {
-				log.Errorf("problem scaling nomad job/group %s/%s: %s", job, group, err)
-				return err
-			}
 		case "decrease_count":
-			count := -r.ActionValue
+			count = -r.ActionValue
 			log.Infof("Metric %s/%s was %.2f, which is below the threshold %.2f. Attempting to decrease count of %s/%s by %d", r.MetricNamespace, r.MetricName, value, r.ComparisonValue, job, group, -count)
-			evaluation, newCount, err := nomad.Scale(n, job, group, count, min, max)
-			if err != nil {
-				log.Errorf("Problem scaling nomad job/group %s/%s: %s", job, group, err)
-				return err
-			}
-			log.Infof("Scaled %s/%s to %d successfully with evaluation ID %s", job, group, newCount, evaluation)
 		default:
 			log.Errorln("Autoscaling action did not match. Doing nothing...")
 		}
+		evaluation, newCount, err := nomad.Scale(n, job, group, count, min, max)
+		if err != nil {
+			log.Errorf("Problem scaling nomad job/group %s/%s: %s", job, group, err)
+			return err
+		}
+		log.Infof("Scaled %s/%s to %d successfully with evaluation ID %s", job, group, newCount, evaluation)
 	} else {
 		log.Debugln("Not scaling")
 	}

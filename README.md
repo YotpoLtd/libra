@@ -19,7 +19,14 @@ The skeleton of this project is from [jippi/nomad-auto-scale](https://github.com
 * Handle Nomad errors more robustly
 
 ## Configuration
-You can (and probably should) configure five environment variables as well, `LIBRA_ADDR`, `LIBRA_CONFIG_DIR`, `GRAPHITE_PASSWORD`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`.
+You can (and probably should) configure five environment variables as well,
+`LIBRA_ADDR`,
+`LIBRA_CONFIG_DIR`,
+`GRAPHITE_PASSWORD`,
+`AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY`,
+`INFLUX_USERNAME`,
+`INFLUX_PASSWORD`
 
 Libra gets most of its configuration from HCL config files located in a config directory (default `/etc/libra`). Here's an example `config.hcl` file:
 

@@ -11,4 +11,5 @@ type RootConfig struct {
 	Jobs     map[string]*nomad.Job      `hcl:"job"`
 	Nomad    nomad.Config               `hcl:"nomad"`
 	Backends map[string]structs.Backend `hcl:"backend"`
+	Store    map[string]structs.Store   `hcl:"store"`
 }

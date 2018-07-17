@@ -54,7 +54,7 @@ func GrafanaHandler(w rest.ResponseWriter, r *rest.Request) {
 		return
 	}
 	log.Infof("Received Grafana webhook: %v", t.Message)
-	config, err := config.NewConfig(os.Getenv("LIBRA_CONFIG_DIR"))
+	config, err := config.ParseConfig(os.Getenv("LIBRA_CONFIG_DIR"))
 	if err != nil {
 		log.Errorf("Failed to read or parse config file: %s", err)
 		rest.Error(w, err.Error(), http.StatusInternalServerError)
