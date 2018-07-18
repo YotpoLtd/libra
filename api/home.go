@@ -5,5 +5,5 @@ import (
 )
 
 func HomeHandler(w rest.ResponseWriter, r *rest.Request) {
-	w.WriteJson("welcome to libra, the Nomad auto-scaler")
+	w.WriteJson("Hi, I'm libra, I can scale jobs in Nomad")
 }
