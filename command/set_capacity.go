@@ -11,8 +11,8 @@ import (
 
 	"encoding/json"
 
-	"github.com/mitchellh/cli"
 	"github.com/YotpoLtd/libra/api"
+	"github.com/mitchellh/cli"
 )
 
 // SetCapacityCommand is a Command implementation prints the version.

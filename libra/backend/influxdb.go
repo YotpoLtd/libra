@@ -42,7 +42,6 @@ func NewInfluxDbBackend(name string, config InfluxDbConfig) (*InfluxDbBackend, e
 		influxHTTPTimeout, _ = time.ParseDuration("5s")
 	}
 
-
 	influxHTTPConfig := influx.HTTPConfig{
 		Addr:      config.Addr,
 		Password:  config.Password,
@@ -134,7 +133,6 @@ func (b *InfluxDbBackend) GetValue(rule structs.Rule) (float64, error) {
 	if len(res[0].Series) == 0 {
 		return 0.0, fmt.Errorf("no datapoints found for [%s]", q)
 	}
-
 
 	var value interface{}
 	for i, row := range res[0].Series[0].Values {

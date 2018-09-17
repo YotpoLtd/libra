@@ -9,8 +9,8 @@ import (
 
 	"io/ioutil"
 
-	"github.com/mitchellh/cli"
 	"github.com/YotpoLtd/libra/api"
+	"github.com/mitchellh/cli"
 )
 
 // RestartCommand is a Command implementation that restarts a job.

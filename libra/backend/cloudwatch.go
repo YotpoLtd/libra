@@ -6,11 +6,11 @@ import (
 
 	"errors"
 
+	"github.com/YotpoLtd/libra/structs"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatch"
 	log "github.com/sirupsen/logrus"
-	"github.com/YotpoLtd/libra/structs"
 )
 
 // CloudWatchConfig is the configuration for a CloudWatch backend

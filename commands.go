@@ -3,8 +3,8 @@ package main
 import (
 	"os"
 
-	"github.com/mitchellh/cli"
 	"github.com/YotpoLtd/libra/command"
+	"github.com/mitchellh/cli"
 )
 
 // Commands returns the mapping of CLI commands for Libra.
@@ -15,9 +15,6 @@ func Commands() map[string]cli.CommandFactory {
 		ErrorWriter: os.Stderr,
 	}
 	return map[string]cli.CommandFactory{
-		"ping": func() (cli.Command, error) {
-			return &command.PingCommand{Ui: ui}, nil
-		},
 		"restart": func() (cli.Command, error) {
 			return &command.RestartCommand{Ui: ui}, nil
 		},

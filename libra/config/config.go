@@ -6,16 +6,16 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/YotpoLtd/libra/libra/structs"
 	"github.com/hashicorp/hcl"
 	log "github.com/sirupsen/logrus"
-	"github.com/YotpoLtd/libra/libra/structs"
 )
 
 type Config struct {
-	Jobs     map[string]*structs.NomadJob      `hcl:"job"`
-	Nomad    structs.NomadConfig               `hcl:"nomad"`
-	Backends map[string]structs.Backend `hcl:"backend"`
-	Store    map[string]structs.Store   `hcl:"store"`
+	Jobs     map[string]*structs.NomadJob `hcl:"job"`
+	Nomad    structs.NomadConfig          `hcl:"nomad"`
+	Backends map[string]structs.Backend   `hcl:"backend"`
+	Store    map[string]structs.Store     `hcl:"store"`
 }
 
 // NewConfig will return a Config struct

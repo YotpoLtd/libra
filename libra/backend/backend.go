@@ -6,7 +6,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/YotpoLtd/libra/structs"
+	"github.com/YotpoLtd/libra/libra/structs"
 )
 
 // ConfiguredBackends struct

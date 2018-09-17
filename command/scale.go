@@ -10,8 +10,8 @@ import (
 
 	"io/ioutil"
 
-	"github.com/mitchellh/cli"
 	"github.com/YotpoLtd/libra/api"
+	"github.com/mitchellh/cli"
 )
 
 // ScaleCommand is a Command implementation prints the version.

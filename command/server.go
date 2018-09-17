@@ -1,29 +1,23 @@
 package command
 
 import (
-	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
-	"os"
 	"strings"
-
-	"time"
 
 	"github.com/YotpoLtd/libra/api"
 	"github.com/YotpoLtd/libra/libra"
 
+	"flag"
 
 	"github.com/ant0ine/go-json-rest/rest"
 	"github.com/mitchellh/cli"
 	"github.com/sirupsen/logrus"
-	"gopkg.in/robfig/cron.v2"
-	"flag"
 )
 
 // ServerCommand is a Command implementation prints the version.
 type ServerCommand struct {
-	Ui    cli.Ui
+	Ui cli.Ui
 }
 
 func (c *ServerCommand) Help() string {
@@ -33,7 +27,6 @@ Usage: libra server [options]
 `
 	return strings.TrimSpace(helpText)
 }
-
 
 func (c *ServerCommand) Run(args []string) int {
 	serverFlags := flag.NewFlagSet("server", flag.ContinueOnError)
@@ -84,13 +77,13 @@ func (c *ServerCommand) Run(args []string) int {
 
 	s.SetApp(router)
 
-	cr, _, err := libra.loadRules()
+	cr, _, err := libra.LoadRules()
 	if err != nil {
 		logrus.Errorf("Problem with the Libra server: %s", err)
 		return 1
 	}
 	cr.Start()
-
+	// TODO: Make listener honor ENV/Config
 	err = http.ListenAndServe(":8646", s.MakeHandler())
 	if err != nil {
 		logrus.Errorf("Problem with the Libra server: %s", err)

@@ -6,20 +6,21 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/YotpoLtd/libra/libra/config"
 	"github.com/hashicorp/nomad/api"
 	"github.com/hashicorp/nomad/nomad/structs"
 	_ "github.com/ugorji/go/codec"
 )
 
 // NewClient will create a instance of a nomad API Client
-func NewClient(c Config) (*api.Client, error) {
+func NewClient(c config.Config) (*api.Client, error) {
 	nomadDefaultConfig := api.DefaultConfig()
 	envAddress := os.Getenv("NOMAD_ADDRESS")
 
 	if envAddress != "" {
 		nomadDefaultConfig.Address = envAddress
 	} else {
-		nomadDefaultConfig.Address = c.Address
+		nomadDefaultConfig.Address = c.Nomad.Address
 	}
 
 	client, err := api.NewClient(nomadDefaultConfig)

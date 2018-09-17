@@ -28,7 +28,7 @@ func Setup(configDir string) (*Libra, error) {
 	return newLibra, nil
 }
 
-func (l *libra) loadRules() (*cron.Cron, []cron.EntryID, error) {
+func (l *Libra) LoadRules() (*cron.Cron, []cron.EntryID, error) {
 
 	//	n, err := nomad.NewClient(l.config.Nomad)
 	//	if err != nil {
@@ -40,7 +40,7 @@ func (l *libra) loadRules() (*cron.Cron, []cron.EntryID, error) {
 	//		logrus.Fatalf("  Failed to get Nomad DC: %s", err)
 	//	}
 	//	logrus.Infof("  -> DC: %s", dc)
-	backends, err := backend.InitializeBackends(l.config.Backends)
+	backends, err := backend.InitializeBackends(l.Config.Backends)
 	if err != nil {
 		logrus.Fatalf("%s", err)
 	}
@@ -50,7 +50,7 @@ func (l *libra) loadRules() (*cron.Cron, []cron.EntryID, error) {
 		logrus.Infof("  -> %s (%s)", name, b.Info().Kind)
 	}
 	logrus.Info("")
-	logrus.Infof("Found %d jobs", len(l.config.Jobs))
+	logrus.Infof("Found %d jobs", len(l.Config.Jobs))
 
 	//err = datastore.InitializeStore(config)
 	//if err != nil {
@@ -60,7 +60,7 @@ func (l *libra) loadRules() (*cron.Cron, []cron.EntryID, error) {
 	cr := cron.New()
 	ids := []cron.EntryID{}
 
-	for _, job := range l.config.Jobs {
+	for _, job := range l.Config.Jobs {
 		logrus.Infof("  -> Job: %s", job.Name)
 
 		for _, group := range job.Groups {
@@ -69,7 +69,7 @@ func (l *libra) loadRules() (*cron.Cron, []cron.EntryID, error) {
 			logrus.Infof("      max_count = %d", group.MaxCount)
 
 			for name, rule := range group.Rules {
-				cfID, err := cr.AddFunc(rule.Period, createCronFunc(rule, &l.config.Nomad, job.Name, group.Name, group.MinCount, group.MaxCount))
+				cfID, err := cr.AddFunc(rule.Period, createCronFunc(rule, &l.Config.Nomad, job.Name, group.Name, group.MinCount, group.MaxCount))
 				if err != nil {
 					logrus.Errorf("Problem adding autoscaling rule to cron: %s", err)
 					return cr, ids, err

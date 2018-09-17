@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/YotpoLtd/libra/libra/config"
+	"github.com/YotpoLtd/libra/libra/nomad"
 	"github.com/ant0ine/go-json-rest/rest"
 	log "github.com/sirupsen/logrus"
-	"github.com/YotpoLtd/libra/config"
-	"github.com/YotpoLtd/libra/nomad"
 )
 
 func CapacityHandler(w rest.ResponseWriter, r *rest.Request) {

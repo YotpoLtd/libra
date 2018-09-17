@@ -1,4 +1,4 @@
-FROM golang:1.10-alpine as builder
+FROM golang:1.11-alpine as builder
 
 WORKDIR /go/src/github.com/YotpoLtd/libra/
 # Copy sources into the container (see .dockerignore for excluded files)
