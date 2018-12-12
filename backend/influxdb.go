@@ -1,11 +1,11 @@
 package backend
 
 import (
-	"fmt"
-	influx "github.com/influxdata/influxdb/client/v2"
-	//log "github.com/sirupsen/logrus"
 	"encoding/json"
+	"fmt"
 	"github.com/YotpoLtd/libra/structs"
+	influx "github.com/influxdata/influxdb/client/v2"
+	"github.com/sirupsen/logrus"
 	"time"
 )
 
@@ -125,7 +125,10 @@ func (b *InfluxDbBackend) GetValue(rule structs.Rule) (float64, error) {
 		}
 	}
 
-	q := fmt.Sprintf("SELECT %s(%s) FROM %s WHERE %s time > now() - %s", selector, fieldName, measurementName, whereClauseStr, timePeriod)
+	q := fmt.Sprintf("SELECT %s(%s) FROM \"%s\" WHERE %s time > now() - %s", selector, fieldName, measurementName, whereClauseStr, timePeriod)
+
+    logrus.Debug("Querying InfluxDB: [%s]", q)
+
 	res, err := queryDB(b.Connection, q, databaseName)
 	if err != nil {
 		return 0.0, err

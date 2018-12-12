@@ -44,6 +44,11 @@ func (c *ServerCommand) Run(args []string) int {
 		return 1
 	}
 
+	if os.Getenv("LOG_LEVEL") == "DEBUG" {
+		logrus.SetLevel(logrus.DebugLevel)
+		logrus.Debug("Log level set - DEBUG")
+	}
+
 	os.Setenv("LIBRA_CONFIG_DIR", c.ConfDir)
 	s := rest.NewApi()
 	logger := logrus.New()
