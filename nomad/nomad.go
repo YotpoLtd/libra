@@ -91,6 +91,7 @@ func Scale(client *api.Client, jobID, group string, scale, min, max int) (string
 	if err != nil {
 		return "", 0, err
 	}
+	consulWriteToKV(newCount)
 	return resp.EvalID, newCount, err
 }
 
