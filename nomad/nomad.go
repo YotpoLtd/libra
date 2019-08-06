@@ -94,7 +94,7 @@ func Scale(client *api.Client, jobID, group string, scale, min, max int) (string
 	if err != nil {
 		return "", 0, err
 	}
-	 consulKey := "libra/api-resque/" + jobName + "/instance_num"
+	 consulKey := "libra/api-resque/" + jobName + "/instance_num"  // TODO:: need to be change - this is only testing!
      consulWriteToKV(consulKey, newCount)
 	return resp.EvalID, newCount, err
 }
