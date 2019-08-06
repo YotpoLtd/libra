@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 
+     consulapi "github.com/hashicorp/consul/api"
 	"github.com/hashicorp/nomad/api"
 	"github.com/hashicorp/nomad/nomad/structs"
 	_ "github.com/ugorji/go/codec"
@@ -54,8 +55,10 @@ func Scale(client *api.Client, jobID, group string, scale, min, max int) (string
 
 	var newCount int
 	newCount = 0
+	 jobName := "test"
 
 	for _, tg := range job.TaskGroups {
+	    jobName=*tg.Name
 		if *tg.Name == group {
 			oldCount := *tg.Count
 			if *job.Status == "dead" {
@@ -91,6 +94,8 @@ func Scale(client *api.Client, jobID, group string, scale, min, max int) (string
 	if err != nil {
 		return "", 0, err
 	}
+	 consulKey := "libra/api-resque/" + jobName + "/instance_num"
+     consulWriteToKV(consulKey, newCount)
 	return resp.EvalID, newCount, err
 }
 
@@ -147,4 +152,32 @@ func SetCapacity(client *api.Client, jobID, groupID string, count, min, max int)
 	job.TaskGroups[0].Count = &count
 	resp, _, _ := client.Jobs().Register(job, &api.WriteOptions{})
 	return resp.EvalID, count, nil
+}
+
+
+func consulWriteToKV(consulKey string, newCount int)  {
+
+        // Get a new client
+        log.Printf("consulKey:" + consulKey)
+        log.Printf(string(newCount))
+
+        config := consulapi.DefaultConfig()
+        config.Address = "consul.us-east-1.yotpo.xyz:8500"
+        client, err := consulapi.NewClient(config)
+
+        if err != nil {
+                log.Printf("err in libra consulapi.NewClient-config" + err.Error())
+        }
+
+        // Get a handle to the KV API
+        kv := client.KV()
+
+
+        // PUT a new KV pair
+        s := strconv.Itoa(newCount)
+        p := &consulapi.KVPair{Key: consulKey, Value: []byte(s)}
+        _, err = kv.Put(p, nil)
+        if err != nil {
+                log.Printf("err in libra kv.Put" + err.Error())
+        }
 }
