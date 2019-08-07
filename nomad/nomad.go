@@ -5,8 +5,10 @@ import (
 	"log"
 	"os"
 	"strconv"
+    "strings"
 
-     consulapi "github.com/hashicorp/consul/api"
+
+    consulapi "github.com/hashicorp/consul/api"
 	"github.com/hashicorp/nomad/api"
 	"github.com/hashicorp/nomad/nomad/structs"
 	_ "github.com/ugorji/go/codec"
@@ -55,7 +57,7 @@ func Scale(client *api.Client, jobID, group string, scale, min, max int) (string
 
 	var newCount int
 	newCount = 0
-	 jobName := "test"
+	var jobName string
 
 	for _, tg := range job.TaskGroups {
 	    jobName=*tg.Name
@@ -94,8 +96,18 @@ func Scale(client *api.Client, jobID, group string, scale, min, max int) (string
 	if err != nil {
 		return "", 0, err
 	}
-	 consulKey := "libra/api-resque/" + jobName + "/instance_num"  // TODO:: need to be change - this is only testing!
-     consulWriteToKV(consulKey, newCount)
+	consulKeyBase := exportConsulKeyBase(jobID,jobName)
+	consulKey := os.Getenv("CONSUL_KEY_PREFIX") + "/" + consulKeyBase + "/counts/" + jobName + "/" + os.Getenv("CONSUL_KEY")
+
+
+    // THIS SECTION OF PRINTF IS ONLY FOR CODEREVIEW AND DEBUGGING FOR LIOR AND WILL REMOVED AFTER APPROVAL!
+	log.Printf("ELIFISH: CONSUL_KEY_PREFIX:" + os.Getenv("CONSUL_KEY_PREFIX"))
+	log.Printf("ELIFISH: consulKeyBase:" + consulKeyBase)
+	log.Printf("ELIFISH: jobName:" + jobName)
+	log.Printf("ELIFISH: CONSUL_KEY:" + os.Getenv("CONSUL_KEY"))
+
+	newCountString := strconv.Itoa(newCount)
+    consulWriteToKV(consulKey, newCountString)
 	return resp.EvalID, newCount, err
 }
 
@@ -155,29 +167,35 @@ func SetCapacity(client *api.Client, jobID, groupID string, count, min, max int)
 }
 
 
-func consulWriteToKV(consulKey string, newCount int)  {
+func exportConsulKeyBase(jobID string, jobName string) string{
+     replaced := strings.Replace(jobID, "-" + jobName, "", -1)
+     return replaced
+
+}
+
+func consulWriteToKV(consulKey string, consulValue string)  {
 
         // Get a new client
-        log.Printf("consulKey:" + consulKey)
-        log.Printf(string(newCount))
+        log.Printf("[INFO] Saving instances number %s in consul %s", consulValue, consulKey)
+
 
         config := consulapi.DefaultConfig()
-        config.Address = "consul.us-east-1.yotpo.xyz:8500"
+        config.Address = os.Getenv("CONSUL_ADDRESS")
         client, err := consulapi.NewClient(config)
 
         if err != nil {
-                log.Printf("err in libra consulapi.NewClient-config" + err.Error())
+                log.Printf("[ERROR] New Client config  %s", err.Error())
         }
 
         // Get a handle to the KV API
         kv := client.KV()
 
-
         // PUT a new KV pair
-        s := strconv.Itoa(newCount)
-        p := &consulapi.KVPair{Key: consulKey, Value: []byte(s)}
+        p := &consulapi.KVPair{Key: consulKey, Value: []byte(consulValue)}
         _, err = kv.Put(p, nil)
         if err != nil {
-                log.Printf("err in libra kv.Put" + err.Error())
+                log.Printf("[ERROR] KVPair pust  %s", err.Error())
+
+
         }
 }
