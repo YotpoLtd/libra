@@ -5,9 +5,8 @@ import (
 	"log"
 	"os"
 	"strconv"
-    "strings"
-
-
+	"strings"
+	
     consulapi "github.com/hashicorp/consul/api"
 	"github.com/hashicorp/nomad/api"
 	"github.com/hashicorp/nomad/nomad/structs"
@@ -137,7 +136,6 @@ func Restart(client *api.Client, jobID, group, task, image string) (string, erro
 	} else {
 		return "", errors.New("could not find task group " + group + " in job " + jobID)
 	}
-
 }
 
 // SetCapacity sets the count of a task group
@@ -166,18 +164,15 @@ func SetCapacity(client *api.Client, jobID, groupID string, count, min, max int)
 	return resp.EvalID, count, nil
 }
 
-
 func exportConsulKeyBase(jobID string, jobName string) string{
      replaced := strings.Replace(jobID, "-" + jobName, "", -1)
      return replaced
-
 }
 
 func consulWriteToKV(consulKey string, consulValue string)  {
 
         // Get a new client
-        log.Printf("[INFO] Saving instances number %s in consul %s", consulValue, consulKey)
-
+        log.Printf("[INFO] Saving value %s in consul %s", consulValue, consulKey)
 
         config := consulapi.DefaultConfig()
         config.Address = os.Getenv("CONSUL_ADDRESS")
