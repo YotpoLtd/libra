@@ -56,10 +56,10 @@ func Scale(client *api.Client, jobID, group string, scale, min, max int) (string
 
 	var newCount int
 	newCount = 0
-	var jobName string
+	var groupName string
 
 	for _, tg := range job.TaskGroups {
-		jobName = *tg.Name
+		groupName = *tg.Name
 		if *tg.Name == group {
 			oldCount := *tg.Count
 			if *job.Status == "dead" {
@@ -95,8 +95,8 @@ func Scale(client *api.Client, jobID, group string, scale, min, max int) (string
 	if err != nil {
 		return "", 0, err
 	}
-	consulKeyBase := exportConsulKeyBase(jobID, jobName)
-	consulKey := os.Getenv("CONSUL_KEY_PREFIX") + "/" + consulKeyBase + "/counts/" + jobName + "/" + os.Getenv("CONSUL_KEY")
+	consulKeyBase := exportConsulKeyBase(jobID, groupName)
+	consulKey := os.Getenv("CONSUL_KEY_PREFIX") + "/" + consulKeyBase + "/counts/" + groupName + "/" + os.Getenv("CONSUL_KEY")
 
 	newCountString := strconv.Itoa(newCount)
 	consulWriteToKV(consulKey, newCountString)
@@ -157,8 +157,8 @@ func SetCapacity(client *api.Client, jobID, groupID string, count, min, max int)
 	return resp.EvalID, count, nil
 }
 
-func exportConsulKeyBase(jobID string, jobName string) string {
-	replaced := strings.Replace(jobID, "-"+jobName, "", -1)
+func exportConsulKeyBase(jobID string, groupName string) string {
+	replaced := strings.Replace(jobID, "-"+groupName, "", -1)
 	return replaced
 }
 
