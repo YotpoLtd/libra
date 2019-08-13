@@ -5,7 +5,9 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
+	consulapi "github.com/hashicorp/consul/api"
 	"github.com/hashicorp/nomad/api"
 	"github.com/hashicorp/nomad/nomad/structs"
 	_ "github.com/ugorji/go/codec"
@@ -54,8 +56,10 @@ func Scale(client *api.Client, jobID, group string, scale, min, max int) (string
 
 	var newCount int
 	newCount = 0
+	var groupName string
 
 	for _, tg := range job.TaskGroups {
+		groupName = *tg.Name
 		if *tg.Name == group {
 			oldCount := *tg.Count
 			if *job.Status == "dead" {
@@ -91,6 +95,11 @@ func Scale(client *api.Client, jobID, group string, scale, min, max int) (string
 	if err != nil {
 		return "", 0, err
 	}
+	consulKeyBase := exportConsulKeyBase(jobID, groupName)
+	consulKey := os.Getenv("CONSUL_KEY_PREFIX") + "/" + consulKeyBase + "/counts/" + groupName + "/" + os.Getenv("CONSUL_KEY")
+
+	newCountString := strconv.Itoa(newCount)
+	consulWriteToKV(consulKey, newCountString)
 	return resp.EvalID, newCount, err
 }
 
@@ -120,7 +129,6 @@ func Restart(client *api.Client, jobID, group, task, image string) (string, erro
 	} else {
 		return "", errors.New("could not find task group " + group + " in job " + jobID)
 	}
-
 }
 
 // SetCapacity sets the count of a task group
@@ -147,4 +155,34 @@ func SetCapacity(client *api.Client, jobID, groupID string, count, min, max int)
 	job.TaskGroups[0].Count = &count
 	resp, _, _ := client.Jobs().Register(job, &api.WriteOptions{})
 	return resp.EvalID, count, nil
+}
+
+func exportConsulKeyBase(jobID string, groupName string) string {
+	replaced := strings.Replace(jobID, "-"+groupName, "", -1)
+	return replaced
+}
+
+func consulWriteToKV(consulKey string, consulValue string) {
+
+	// Get a new client
+	log.Printf("[INFO] Saving value %s in consul %s", consulValue, consulKey)
+
+	config := consulapi.DefaultConfig()
+	config.Address = os.Getenv("CONSUL_ADDRESS")
+	client, err := consulapi.NewClient(config)
+
+	if err != nil {
+		log.Printf("[ERROR] New Client config  %s", err.Error())
+	}
+
+	// Get a handle to the KV API
+	kv := client.KV()
+
+	// PUT a new KV pair
+	p := &consulapi.KVPair{Key: consulKey, Value: []byte(consulValue)}
+	_, err = kv.Put(p, nil)
+	if err != nil {
+		log.Printf("[ERROR] KVPair pust  %s", err.Error())
+
+	}
 }
