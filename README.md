@@ -57,9 +57,10 @@ job "nginx-prod" {
       // is valid and which checks you can execute
       backend = "test-backend"
 
-      // (required) The CloudWatch dimension name and value
-      dimension_name = "AutoScalingGroupName"
-      dimension_value = "infra-httpapi-asg"
+      // (required) The CloudWatch dimensions as a map of name and value
+      dimensions = {
+          "AutoScalingGroupName" = "infra-httpapi-asg",
+      }     
 
       // (required) The CloudWatch metric name and namespace
       metric_namespace = "AWS/EC2"
@@ -87,8 +88,9 @@ job "nginx-prod" {
 
     rule "cloudwatch asg cpu usage lower bound" {
       backend          = "test-backend"
-      dimension_name   = "AutoScalingGroupName"
-      dimension_value  = "infra-httpapi-asg"
+      dimensions = {
+        "AutoScalingGroupName" = "infra-httpapi-asg",
+      }
       metric_namespace = "AWS/EC2"
       metric_name      = "CPUUtilization"
       comparison       = "below"
